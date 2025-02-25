@@ -80,7 +80,7 @@ class LoginAPIView(APIView):
             return Response({"detail": "Falsche Anmeldedaten"}, status=status.HTTP_400_BAD_REQUEST)
 
         token, created = Token.objects.get_or_create(user=user)
-        return Response({"id": user.id, "username": user.username, "email": user.email, "token": token.key})
+        return Response({"user_id": user.id, "username": user.username, "email": user.email, "token": token.key})
 
 class RegisterAPIView(APIView):
     def post(self, request):
@@ -103,13 +103,13 @@ class RegisterAPIView(APIView):
 
         user = User.objects.create_user(username=username, password=password, email=email)
         Profil.objects.create(user=user)  # Profil für den User erstellen
-        token, created = Token.objects.create(user=user)  # Erst jetzt Token generieren
+        token, _ = Token.objects.get_or_create(user=user)  # Token erstellen
 
         return Response({
-            "id": user.id,
+            "user_id": user.id,
             "email": user.email,
             "username": user.username,
-            "token": token
+            "token": token.key
         }, status=status.HTTP_201_CREATED)
         
 class BaseInfoViewSet(viewsets.ViewSet):

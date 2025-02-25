@@ -15,6 +15,6 @@ urlpatterns = [
     path("profiles/business/", BusinessProfilesListView.as_view(), name="business-profiles"),
     path("profiles/customer/", CustomerProfilesListView.as_view(), name="customer-profiles"),
     path("login/", LoginAPIView.as_view(), name="login"),
-    path("register/", RegisterAPIView.as_view(), name="register"),
+    path("registration/", RegisterAPIView.as_view(), name="register"),
 ]
 
