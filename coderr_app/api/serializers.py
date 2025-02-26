@@ -17,7 +17,7 @@ class OfferDetailsSerializer(serializers.ModelSerializer):
 class OffersSerializer(serializers.ModelSerializer):
     details = OfferDetailsSerializer(many=True, read_only=True, source='offer_details')  
     min_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
-    max_delivery_time = serializers.IntegerField(read_only=True)
+    min_delivery_time = serializers.IntegerField(read_only=True)
     user_details = UserSerializer(source="user", read_only=True)
 
     class Meta:

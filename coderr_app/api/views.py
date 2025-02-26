@@ -32,12 +32,15 @@ class OffersViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Falls `creator_id` in der URL ist, filtere die Angebote nach dem Ersteller."""
         queryset = Offers.objects.annotate(
-        min_price=Min("offer_details__price"))
-        queryset = Offers.objects.annotate(
-        max_delivery_time=Min("offer_details__delivery_time_in_days"))
+        min_price=Min("offer_details__price"),
+        min_delivery_time=Min("offer_details__delivery_time_in_days"))
+       
         creator_id = self.request.query_params.get("creator_id")
         min_price = self.request.query_params.get("min_price")
         max_delivery_time = self.request.query_params.get("max_delivery_time")
+        ordering = self.request.query_params.get("ordering")
+        if ordering:
+            queryset = queryset.order_by(ordering)
         if creator_id:
             queryset = queryset.filter(user_id=creator_id)  # `user_id`, weil `user` ein ForeignKey ist
         if min_price:
