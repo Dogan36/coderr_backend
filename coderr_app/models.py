@@ -19,7 +19,7 @@ class OfferDetails(models.Model):
     revisions = models.IntegerField(default=0)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     delivery_time_in_days = models.IntegerField(default=0)
-    features = models.JSONField(default=list)
+    features = models.JSONField(default=list, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     offer_type_choices = [
@@ -55,7 +55,7 @@ class Orders(models.Model):
     
 
     def __str__(self):
-        return self.offer.title
+        return self.title
 
 class Profil(models.Model):
     type_choices = [

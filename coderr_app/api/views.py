@@ -1,5 +1,5 @@
 from timeit import repeat
-from rest_framework import viewsets, generics, status
+from rest_framework import viewsets, generics, status, filters
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from ..models import Offers, OfferDetails, Orders, Profil, Reviews
@@ -9,6 +9,7 @@ from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.db.models import Avg 
+from rest_framework.decorators import action
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -20,10 +21,20 @@ class UserViewSet(viewsets.ModelViewSet):
 class OffersViewSet(viewsets.ModelViewSet):
     queryset = Offers.objects.all()
     serializer_class = OffersSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['title', 'description']
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())  # Suchfilter anwenden
+        serializer = self.get_serializer(queryset, many=True)
+
+        return Response({
+            "count": len(serializer.data),  # Gesamtanzahl der Angebote
+            "results": serializer.data  # Die eigentlichen Angebote
+        })
 class OfferDetailsViewSet(viewsets.ModelViewSet):
     queryset = OfferDetails.objects.all()
     serializer_class = OfferDetailsSerializer
@@ -116,12 +127,26 @@ class BaseInfoViewSet(viewsets.ViewSet):
     def list(self, request):
         review_count = Reviews.objects.count()
         average_rating = Reviews.objects.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
-        orders_count = Orders.objects.count()
+        offer_count = Offers.objects.count()
         business_profile_count = Profil.objects.filter(type="business").count()
 
         return Response({
             "review_count": review_count,
             "average_rating": round(average_rating, 2),  # Durchschnittliche Bewertung auf 2 Dezimalstellen runden
-            "orders_count": orders_count,
+            "offer_count": offer_count,
             "business_profile_count": business_profile_count
         })
+        
+class BusinessOrderCountViewSet(viewsets.ViewSet):
+    def list(self, request, pk=None):
+        """Gibt die Anzahl aller Bestellungen für ein Business zurück."""
+        order_count = Orders.objects.filter(business_user_id=pk).count()
+        print(order_count)
+        return Response({"order_count": order_count})
+        
+    
+class BusinessCompletedOrderCountViewSet(viewsets.ViewSet):
+    def list(self, request, pk=None):
+        """Gibt die Anzahl der abgeschlossenen Bestellungen zurück."""
+        completed_count = Orders.objects.filter(business_user_id=pk, status="completed").count()
+        return Response({"completed_orders": completed_count})
