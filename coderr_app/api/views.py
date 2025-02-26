@@ -1,6 +1,8 @@
-from timeit import repeat
+from django.db.models import Min, Max, DecimalField, IntegerField
+from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters
 from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from ..models import Offers, OfferDetails, Orders, Profil, Reviews
 from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer
@@ -9,7 +11,7 @@ from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.db.models import Avg 
-from rest_framework.decorators import action
+
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -21,7 +23,7 @@ class UserViewSet(viewsets.ModelViewSet):
 class OffersViewSet(viewsets.ModelViewSet):
     queryset = Offers.objects.all()
     serializer_class = OffersSerializer
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['title', 'description']
     filterset_fields = ['user']
     def perform_create(self, serializer):
@@ -29,12 +31,19 @@ class OffersViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """Falls `creator_id` in der URL ist, filtere die Angebote nach dem Ersteller."""
-        queryset = super().get_queryset()
+        queryset = Offers.objects.annotate(
+        min_price=Min("offer_details__price"))
+        queryset = Offers.objects.annotate(
+        max_delivery_time=Min("offer_details__delivery_time_in_days"))
         creator_id = self.request.query_params.get("creator_id")
-
+        min_price = self.request.query_params.get("min_price")
+        max_delivery_time = self.request.query_params.get("max_delivery_time")
         if creator_id:
             queryset = queryset.filter(user_id=creator_id)  # `user_id`, weil `user` ein ForeignKey ist
-
+        if min_price:
+             queryset = queryset.filter(min_price__gte=float(min_price))
+        if max_delivery_time:
+            queryset = queryset.filter(max_delivery_time__lte=int(max_delivery_time))
         return queryset
     
     def list(self, request, *args, **kwargs):

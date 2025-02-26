@@ -1,3 +1,4 @@
+from os import read
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from coderr_app.models import Offers, OfferDetails, Orders, Profil, Reviews
@@ -15,21 +16,13 @@ class OfferDetailsSerializer(serializers.ModelSerializer):
               
 class OffersSerializer(serializers.ModelSerializer):
     details = OfferDetailsSerializer(many=True, read_only=True, source='offer_details')  
-    min_price = serializers.SerializerMethodField()
-    min_delivery_time = serializers.SerializerMethodField()
+    min_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    max_delivery_time = serializers.IntegerField(read_only=True)
     user_details = UserSerializer(source="user", read_only=True)
 
     class Meta:
         model = Offers
         fields = '__all__'
-
-    def get_min_price(self, obj):
-        min_price = obj.offer_details.order_by("price").first()
-        return min_price.price if min_price else None
-
-    def get_min_delivery_time(self, obj):
-        min_time = obj.offer_details.order_by("delivery_time_in_days").first()
-        return min_time.delivery_time_in_days if min_time else None
 
    
 class OrdersSerializer(serializers.ModelSerializer):
