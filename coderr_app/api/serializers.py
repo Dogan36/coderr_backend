@@ -5,7 +5,7 @@ from coderr_app.models import Offers, OfferDetails, Orders, Profil, Reviews
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+        fields = ['pk', 'username', 'first_name', 'last_name', 'email']
 
 class OfferDetailsSerializer(serializers.ModelSerializer):
     features = serializers.ListField(child=serializers.CharField())
@@ -53,6 +53,17 @@ class ProfilSerializer(serializers.ModelSerializer):
             "user", "username", "first_name", "last_name", "file",
             "location", "tel", "description", "working_hours",
             "type", "email", "created_at"
+        ]
+        read_only_fields = ["created_at"]
+        
+class ProfilTypeSingleSerializer(serializers.ModelSerializer):
+    user = UserSerializer() 
+    class Meta:
+        model = Profil
+        fields = [
+            "user", "file",
+            "location", "tel", "description", "working_hours",
+            "type", "created_at"
         ]
         read_only_fields = ["created_at"]
 

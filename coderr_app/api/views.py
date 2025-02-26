@@ -23,10 +23,20 @@ class OffersViewSet(viewsets.ModelViewSet):
     serializer_class = OffersSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['title', 'description']
-
+    filterset_fields = ['user']
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
+    def get_queryset(self):
+        """Falls `creator_id` in der URL ist, filtere die Angebote nach dem Ersteller."""
+        queryset = super().get_queryset()
+        creator_id = self.request.query_params.get("creator_id")
+
+        if creator_id:
+            queryset = queryset.filter(user_id=creator_id)  # `user_id`, weil `user` ein ForeignKey ist
+
+        return queryset
+    
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())  # Suchfilter anwenden
         serializer = self.get_serializer(queryset, many=True)
@@ -42,6 +52,8 @@ class OfferDetailsViewSet(viewsets.ModelViewSet):
 class OrdersViewSet(viewsets.ModelViewSet):
     queryset = Orders.objects.all()
     serializer_class = OrdersSerializer
+    
+    
     
 # 🔹 1. GET /profile/<int:pk>/  (Detailansicht & Update)
 class ProfileDetailView(generics.RetrieveUpdateAPIView):
@@ -73,7 +85,7 @@ class BusinessProfilesListView(generics.ListAPIView):
 # 🔹 3. GET /profiles/customer/  (Liste aller Kunden-Profile)
 class CustomerProfilesListView(generics.ListAPIView):
     serializer_class = ProfilTypeSerializer
-
+    print(Profil.objects.filter(type="customer"))
     def get_queryset(self):
         return Profil.objects.filter(type="customer")
     
@@ -149,4 +161,5 @@ class BusinessCompletedOrderCountViewSet(viewsets.ViewSet):
     def list(self, request, pk=None):
         """Gibt die Anzahl der abgeschlossenen Bestellungen zurück."""
         completed_count = Orders.objects.filter(business_user_id=pk, status="completed").count()
-        return Response({"completed_orders": completed_count})
+        print(completed_count)
+        return Response({"completed_order_count": completed_count})
