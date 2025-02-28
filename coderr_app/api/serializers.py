@@ -12,18 +12,27 @@ class OfferDetailsSerializer(serializers.ModelSerializer):
     features = serializers.ListField(child=serializers.CharField())
     class Meta:
         model = OfferDetails
-        fields = '__all__'
+        fields = ['id', 'title', 'revisions', 'delivery_time_in_days', 'price', 'features', 'offer_type']
+        extra_kwargs = {
+            'offer': {'read_only': True}
+        }
               
 class OffersSerializer(serializers.ModelSerializer):
-    details = OfferDetailsSerializer(many=True, read_only=True, source='offer_details')  
+    details = OfferDetailsSerializer(many=True, source='offer_details')
     min_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     min_delivery_time = serializers.IntegerField(read_only=True)
     user_details = UserSerializer(source="user", read_only=True)
-
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = Offers
         fields = '__all__'
 
+    def create(self, validated_data):
+        details_data = validated_data.pop('offer_details', [])
+        offer = Offers.objects.create(**validated_data)
+        for detail_data in details_data:
+            OfferDetails.objects.create(offer=offer, **detail_data)
+        return offer
    
 class OrdersSerializer(serializers.ModelSerializer):
     customer_user = serializers.PrimaryKeyRelatedField(queryset=Profil.objects.all())

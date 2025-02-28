@@ -10,7 +10,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
-from django.db.models import Avg 
+from django.db.models import Avg
+from rest_framework.permissions import IsAuthenticated
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -21,12 +22,14 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
 class OffersViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = Offers.objects.all()
     serializer_class = OffersSerializer
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['title', 'description']
     filterset_fields = ['user']
     def perform_create(self, serializer):
+        print(self.request)
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
     def get_queryset(self):
@@ -40,7 +43,11 @@ class OffersViewSet(viewsets.ModelViewSet):
         max_delivery_time = self.request.query_params.get("max_delivery_time")
         ordering = self.request.query_params.get("ordering")
         if ordering:
-            queryset = queryset.order_by(ordering)
+            print(ordering)
+            if ordering == "updated_at" or ordering == "-updated_at":
+                queryset = queryset.order_by(ordering).reverse()
+            else:
+                queryset = queryset.order_by(ordering)
         if creator_id:
             queryset = queryset.filter(user_id=creator_id)  # `user_id`, weil `user` ein ForeignKey ist
         if min_price:

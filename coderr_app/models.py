@@ -4,7 +4,7 @@ from django.db import models
 class Offers(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
-    image = models.CharField(max_length=100, blank=True, null=True)
+    image = models.FileField(upload_to='uploads/', blank=True, null=True)
     description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -14,7 +14,7 @@ class Offers(models.Model):
         return self.title
 
 class OfferDetails(models.Model):
-    offer = models.ForeignKey(Offers, on_delete=models.CASCADE, related_name='offer_details')  
+    offer = models.ForeignKey(Offers, on_delete=models.CASCADE, related_name='offer_details')
     title = models.CharField(max_length=100)
     revisions = models.IntegerField(default=0)
     price = models.DecimalField(max_digits=10, decimal_places=2)
