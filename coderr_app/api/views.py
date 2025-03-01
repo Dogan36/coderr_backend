@@ -12,7 +12,12 @@ from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.db.models import Avg
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 
+class LargeResultsSetPagination(PageNumberPagination):
+    page_size = 6
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -28,20 +33,20 @@ class OffersViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['title', 'description']
     filterset_fields = ['user']
+    pagination_class = LargeResultsSetPagination
+    
     def perform_create(self, serializer):
         print(self.request)
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
     def get_queryset(self):
         """Falls `creator_id` in der URL ist, filtere die Angebote nach dem Ersteller."""
-        queryset = Offers.objects.annotate(
-        min_price=Min("offer_details__price"),
-        min_delivery_time=Min("offer_details__delivery_time_in_days"))
-       
+        queryset = Offers.objects.all()
         creator_id = self.request.query_params.get("creator_id")
         min_price = self.request.query_params.get("min_price")
         max_delivery_time = self.request.query_params.get("max_delivery_time")
         ordering = self.request.query_params.get("ordering")
+        
         if ordering:
             print(ordering)
             if ordering == "updated_at" or ordering == "-updated_at":
@@ -53,17 +58,19 @@ class OffersViewSet(viewsets.ModelViewSet):
         if min_price:
              queryset = queryset.filter(min_price__gte=float(min_price))
         if max_delivery_time:
-            queryset = queryset.filter(max_delivery_time__lte=int(max_delivery_time))
+            queryset = queryset.filter(min_delivery_time__lte=int(max_delivery_time))
         return queryset
     
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())  # Suchfilter anwenden
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
-
-        return Response({
-            "count": len(serializer.data),  # Gesamtanzahl der Angebote
-            "results": serializer.data  # Die eigentlichen Angebote
-        })
+        return Response(serializer.data)
+    
+    
 class OfferDetailsViewSet(viewsets.ModelViewSet):
     queryset = OfferDetails.objects.all()
     serializer_class = OfferDetailsSerializer
