@@ -1,4 +1,5 @@
 
+from pyexpat import features
 from django.db import models
 
 class Offers(models.Model):
@@ -54,7 +55,8 @@ class Orders(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     offer_type = models.CharField(max_length=50, choices=offer_type_choices, default='basic')
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-
+    delivery_time_in_days = models.IntegerField(default=0)
+    features = models.JSONField(default=list, blank=True, null=True)
     def __str__(self):
         return self.title
 

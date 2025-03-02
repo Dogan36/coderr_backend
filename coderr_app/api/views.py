@@ -1,11 +1,11 @@
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
-from rest_framework import viewsets, generics, status, filters
+from rest_framework import viewsets, generics, status, filters, mixins
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from ..models import Offers, OfferDetails, Orders, Profil, Reviews
-from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer
+from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer, OrderCreateSerializer
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
@@ -38,7 +38,7 @@ class OffersViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-        # Setzt den eingeloggten User automatisch
+        
     def perform_update(self, serializer):
         image = self.request.FILES.get('image', None)
         if image is not None:
@@ -85,10 +85,32 @@ class OfferDetailsViewSet(viewsets.ModelViewSet):
     queryset = OfferDetails.objects.all()
     serializer_class = OfferDetailsSerializer
     
+
 class OrdersViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
     queryset = Orders.objects.all()
-    serializer_class = OrdersSerializer
     
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return OrderCreateSerializer
+        return OrdersSerializer
+
+    def create(self, request, *args, **kwargs):
+        # Verwende den OrderCreateSerializer für den Input
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        # Serialisiere das erstellte Order-Objekt für die Antwort
+        output_serializer = OrdersSerializer(order, context={'request': request})
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+    
+    def get_queryset(self):
+        """Falls `customer_id` in der URL ist, filtere die Bestellungen nach dem Kunden."""
+        queryset = Orders.objects.all()
+        id = self.request.user.id
+        print(id)
+        queryset = queryset.filter(customer_user=id) | queryset.filter(business_user=id)
+        return queryset
     
     
 # 🔹 1. GET /profile/<int:pk>/  (Detailansicht & Update)
@@ -138,6 +160,7 @@ class ReviewsViewSet(viewsets.ModelViewSet):
     serializer_class = ReviewsSerializer
     
 class LoginAPIView(APIView):
+    permission_classes = []
     def post(self, request):
         username = request.data.get("username")
         password = request.data.get("password")
@@ -180,6 +203,7 @@ class RegisterAPIView(APIView):
         }, status=status.HTTP_201_CREATED)
         
 class BaseInfoViewSet(viewsets.ViewSet):
+    permission_classes = []
     def list(self, request):
         review_count = Reviews.objects.count()
         average_rating = Reviews.objects.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
