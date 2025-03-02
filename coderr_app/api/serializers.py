@@ -69,6 +69,8 @@ class OrdersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Orders
         fields = '__all__'
+        
+    
 
 class OrderCreateSerializer(serializers.ModelSerializer):
     # Der Client liefert nur die ID des OfferDetails, das er wählen möchte.
@@ -152,7 +154,7 @@ class ProfilTypeSerializer(serializers.ModelSerializer):
 
 class ReviewsSerializer(serializers.ModelSerializer):
     business_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
-    reviewer = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    reviewer = serializers.PrimaryKeyRelatedField(read_only=True)
     class Meta:
         model = Reviews
         fields = '__all__'

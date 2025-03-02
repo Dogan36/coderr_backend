@@ -38,8 +38,7 @@ class Orders(models.Model):
     status_choices = [
         ('in_progress', 'In Progress'),
         ('completed', 'Completed'),
-        ('accepted', 'Accepted'),
-        ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
     ]
     offer_type_choices = [
         ('basic', 'Basic'),
