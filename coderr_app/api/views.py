@@ -1,3 +1,4 @@
+from email.mime import image
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -16,7 +17,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from coderr_app.api.permissions import IsStaffForDeleteOnly, IsCustomerForCreateOnly
+from coderr_app.api.permissions import IsBusinessForCreateOnly, IsStaffForDeleteOnly, IsCustomerForCreateOnly
 
 class LargeResultsSetPagination(PageNumberPagination):
     page_size = 6
@@ -31,17 +32,24 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
 
 class OffersViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
     queryset = Offers.objects.all()
+    permission_classes = [IsAuthenticated, IsBusinessForCreateOnly]
     serializer_class = OffersSerializer
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['title', 'description']
     filterset_fields = ['user']
     pagination_class = LargeResultsSetPagination
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+    
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-        
+        image = self.request.FILES.get('image', None)
+        if image is not None:
+            instance = serializer.instance
+            instance.image = image
+            instance.save()
+        else:
+            serializer.save()
     def perform_update(self, serializer):
         image = self.request.FILES.get('image', None)
         if image is not None:
@@ -55,7 +63,7 @@ class OffersViewSet(viewsets.ModelViewSet):
         creator_id = self.request.query_params.get("creator_id")
         min_price = self.request.query_params.get("min_price")
         max_delivery_time = self.request.query_params.get("max_delivery_time")
-        ordering = self.request.query_params.get("ordering")
+        ordering = self.request.query_params.get("ordering", "created_at")
         
         if ordering:
             if ordering == "updated_at" or ordering == "-updated_at":
@@ -68,6 +76,7 @@ class OffersViewSet(viewsets.ModelViewSet):
              queryset = queryset.filter(min_price__gte=float(min_price))
         if max_delivery_time:
             queryset = queryset.filter(min_delivery_time__lte=int(max_delivery_time))
+        
         return queryset
     
     def list(self, request, *args, **kwargs):
@@ -108,6 +117,7 @@ class OrdersViewSet(viewsets.ModelViewSet):
         id = self.request.user.id
 
         queryset = queryset.filter(customer_user=id) | queryset.filter(business_user=id)
+        print(queryset)
         return queryset
     
     
@@ -156,6 +166,27 @@ class ReviewsViewSet(viewsets.ModelViewSet):
     queryset = Reviews.objects.all()
     serializer_class = ReviewsSerializer
     permission_classes = [IsAuthenticated, IsCustomerForCreateOnly]
+    def get_queryset(self):
+        user = self.request.user
+        try:
+            profil = Profil.objects.get(user=user)
+        except Profil.DoesNotExist:
+            return Reviews.objects.none()  # Kein Profil = Keine Bewertungen
+        # Wenn der Benutzer ein `customer` ist → Zeige nur eigene Bewertungen
+        if profil.type == "customer":
+            return Reviews.objects.filter(reviewer=user)
+
+        # Wenn der Benutzer ein `business` ist → Zeige nur Bewertungen für sein Business
+        elif profil.type == "business":
+            return Reviews.objects.filter(business_user=user)
+            
+        ordering = self.request.query_params.get("ordering")
+        if ordering:
+            if ordering == "created_at" or ordering == "-created_at":
+                queryset = queryset.order_by(ordering).reverse()
+            else:
+                queryset = queryset.order_by(ordering)
+        return queryset
     
     def perform_create(self, serializer):
         request_user = self.request.user

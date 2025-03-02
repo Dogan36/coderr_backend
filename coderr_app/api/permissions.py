@@ -17,3 +17,13 @@ class IsCustomerForCreateOnly(BasePermission):
             except Profil.DoesNotExist:
                 return False 
         return True
+    
+class IsBusinessForCreateOnly(BasePermission):
+    def has_permission(self, request, view):
+        if request.method == "POST":
+            try:
+                profil = Profil.objects.get(user=request.user)
+                return profil.type == "business" 
+            except Profil.DoesNotExist:
+                return False 
+        return True

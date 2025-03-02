@@ -1,7 +1,6 @@
-
-from pyexpat import features
 from django.db import models
-
+from django.core.validators import MaxValueValidator, MinValueValidator
+from decimal import Decimal
 class Offers(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
@@ -18,10 +17,10 @@ class Offers(models.Model):
 class OfferDetails(models.Model):
     offer = models.ForeignKey(Offers, on_delete=models.CASCADE, related_name='offer_details')
     title = models.CharField(max_length=100)
-    revisions = models.IntegerField(default=0)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    delivery_time_in_days = models.IntegerField(default=0)
-    features = models.JSONField(default=list, blank=True, null=True)
+    revisions = models.IntegerField(default=0, validators=[MinValueValidator(-1)] )
+    price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
+    delivery_time_in_days = models.IntegerField(default=1, validators=[MinValueValidator(1)])
+    features = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     offer_type_choices = [
@@ -48,14 +47,14 @@ class Orders(models.Model):
     customer_user = models.ForeignKey('Profil', on_delete=models.CASCADE)
     business_user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='business_user')
     title = models.CharField(max_length=100)
-    revisions = models.IntegerField(default=0)
-    status = models.CharField(max_length=50, choices=status_choices, default='pending')
+    revisions = models.IntegerField(default=0, validators=[MinValueValidator(-1)])
+    status = models.CharField(max_length=50, choices=status_choices, default='in_progress')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     offer_type = models.CharField(max_length=50, choices=offer_type_choices, default='basic')
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    delivery_time_in_days = models.IntegerField(default=0)
-    features = models.JSONField(default=list, blank=True, null=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(Decimal("0.00"))])
+    delivery_time_in_days = models.IntegerField(default=0, validators=[MinValueValidator(1)])
+    features = models.JSONField(default=list)
     def __str__(self):
         return self.title
 
@@ -67,9 +66,9 @@ class Profil(models.Model):
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE)
     location = models.CharField(max_length=100)
     file =  models.FileField(upload_to='uploads/', blank=True, null=True)
-    tel = models.CharField(max_length=100)
+    tel = models.CharField(max_length=100, blank=True, null=True)
     description = models.CharField(max_length=100, blank=True, null=True)
-    working_hours = models.CharField(max_length=100, blank=True, null=True)
+    working_hours = models.CharField(max_length=100, default='9-17')
     type = models.CharField(max_length=50, choices=type_choices, default='customer')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -81,7 +80,7 @@ class Profil(models.Model):
 class Reviews(models.Model):
     business_user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     reviewer = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='reviewer')
-    rating = models.IntegerField()
+    rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     description = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

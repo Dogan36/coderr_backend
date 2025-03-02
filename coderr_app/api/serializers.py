@@ -3,6 +3,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from coderr_app.models import Offers, OfferDetails, Orders, Profil, Reviews
 from django.db.models import Min
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
