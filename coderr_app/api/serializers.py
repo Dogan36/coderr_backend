@@ -45,6 +45,7 @@ class OffersSerializer(serializers.ModelSerializer):
         return offer
     
     def update(self, instance, validated_data):
+        
         details_data = validated_data.pop('offer_details', [])
         instance.title = validated_data.get('title', instance.title)
         instance.description = validated_data.get('description', instance.description)
@@ -72,13 +73,14 @@ class OrdersSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+
 class ProfilSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  # Zeigt nur die ID des Users
     username = serializers.CharField(source="user.username", read_only=True)
     first_name = serializers.CharField(source="user.first_name", read_only=True)
     last_name = serializers.CharField(source="user.last_name", read_only=True)
     email = serializers.CharField(source="user.email", read_only=True)
-
+    
     class Meta:
         model = Profil
         fields = [

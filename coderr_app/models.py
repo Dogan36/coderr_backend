@@ -65,7 +65,7 @@ class Profil(models.Model):
     ]
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE)
     location = models.CharField(max_length=100)
-    file = models.CharField(max_length=100, blank=True, null=True)
+    file =  models.FileField(upload_to='uploads/', blank=True, null=True)
     tel = models.CharField(max_length=100)
     description = models.CharField(max_length=100, blank=True, null=True)
     working_hours = models.CharField(max_length=100, blank=True, null=True)

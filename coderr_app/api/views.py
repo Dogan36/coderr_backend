@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from django.db.models import Avg
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
 class LargeResultsSetPagination(PageNumberPagination):
     page_size = 6
@@ -34,11 +35,20 @@ class OffersViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description']
     filterset_fields = ['user']
     pagination_class = LargeResultsSetPagination
-    
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     def perform_create(self, serializer):
-        print(self.request)
-        serializer.save(user=self.request.user)  # Setzt den eingeloggten User automatisch
-
+        serializer.save(user=self.request.user)
+        # Setzt den eingeloggten User automatisch
+    def perform_update(self, serializer):
+        image = self.request.FILES.get('image', None)
+        if image is not None:
+            print(image)
+            instance = serializer.instance
+            instance.image = image
+            instance.save()
+        else:
+            print("No image")
+            serializer.save()
     def get_queryset(self):
         """Falls `creator_id` in der URL ist, filtere die Angebote nach dem Ersteller."""
         queryset = Offers.objects.all()
@@ -90,11 +100,19 @@ class ProfileDetailView(generics.RetrieveUpdateAPIView):
         profil = get_object_or_404(Profil, user__id=pk)
         serializer = self.get_serializer(profil)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
+    def perform_update(self, serializer):
+        image = self.request.FILES.get('image', None)
+        if image is not None:
+            instance = serializer.instance
+            instance.file = image  # Direkt das Bild setzen
+            instance.save()
+        else:
+            serializer.save()
+            
     def patch(self, request, pk, *args, **kwargs):
         profil = get_object_or_404(Profil, user__id=pk)
         serializer = self.get_serializer(profil, data=request.data, partial=True)
-
+        print(request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
