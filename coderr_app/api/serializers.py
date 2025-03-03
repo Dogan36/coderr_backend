@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 from coderr_app.models import Offers, OfferDetails, Orders, Profil, Reviews
 from django.db.models import Min
 
+import os
+
 class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for the User model.
@@ -161,7 +163,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             customer_profile = Profil.objects.get(user=request.user)
         except Profil.DoesNotExist:
             raise serializers.ValidationError("Customer profile not found")
-
+        print("🔍 Customer Profile:", customer_profile)
         # Create the order with data from the selected OfferDetail
         order = Orders.objects.create(
             customer_user=customer_profile,
@@ -177,21 +179,81 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         return order
 
 
-class ProfilSerializer(serializers.ModelSerializer):
-    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  # Zeigt nur die ID des Users
+
+
+class ProfilDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializer für GET-Anfragen.
+    - Zeigt User-Daten als einzelne Felder, nicht verschachtelt.
+    """
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  
     username = serializers.CharField(source="user.username", read_only=True)
     first_name = serializers.CharField(source="user.first_name", read_only=True)
     last_name = serializers.CharField(source="user.last_name", read_only=True)
     email = serializers.CharField(source="user.email", read_only=True)
-    
+    file = serializers.SerializerMethodField()  
+    type = serializers.SerializerMethodField()  # Gibt `profile_type` als `type` zurück
+
     class Meta:
         model = Profil
         fields = [
-            "user", "username", "first_name", "last_name", "file",
-            "location", "tel", "description", "working_hours",
-            "type", "email", "created_at"
+            "user", "username", "first_name", "last_name", "email",
+            "file", "location", "tel", "description",
+            "working_hours", "type", "created_at"
         ]
         read_only_fields = ["created_at"]
+
+    def get_file(self, obj):
+        """Gibt nur den Dateinamen zurück"""
+        return "media/uploads/" + os.path.basename(obj.file.name) if obj.file else None
+    
+    def get_type(self, obj):
+        """Gibt `profile_type` als `type` zurück"""
+        return obj.profile_type  # Intern wird `profile_type` verwendet
+
+class ProfilUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer für PATCH-Anfragen.
+    - User-Daten werden als `user`-Objekt erwartet.
+    """
+    user = UserSerializer()  
+    file = serializers.SerializerMethodField()  
+
+    class Meta:
+        model = Profil
+        fields = [
+            "user", "file", "location", "tel", "description",
+            "working_hours", "profile_type"  # Geändert von `type` zu `profile_type`
+        ]
+
+    def get_file(self, obj):
+        """Gibt nur den Dateinamen zurück"""
+        return "media/uploads/" + os.path.basename(obj.file.name) if obj.file else None
+
+    def update(self, instance, validated_data):
+        """
+        Aktualisiert `Profil`- und `User`-Daten.
+        """
+        print("🔍 Validated Data:", validated_data)
+
+        # User-Daten herausziehen und User-Objekt aktualisieren
+        user_data = validated_data.pop("user", None)
+        if user_data:
+            user = instance.user
+            for attr, value in user_data.items():
+                setattr(user, attr, value)
+            user.save()
+
+        return super().update(instance, validated_data)
+
+    def to_representation(self, instance):
+        """
+        Ändert die Response, sodass `user` nur als ID zurückgegeben wird.
+        """
+        rep = super().to_representation(instance)
+        rep["user"] = instance.user.pk  
+        rep["type"] = instance.profile_type  # Geändert, um `profile_type` als `type` zurückzugeben
+        return rep
         
 class ProfilTypeSingleSerializer(serializers.ModelSerializer):
     """
@@ -202,15 +264,24 @@ class ProfilTypeSingleSerializer(serializers.ModelSerializer):
     - Other fields (`file`, `location`, `tel`, etc.) belong to the profile.
     - `created_at` is read-only.
     """
-    user = UserSerializer() 
+    user = UserSerializer()
+
     class Meta:
         model = Profil
         fields = [
             "user", "file",
             "location", "tel", "description", "working_hours",
-            "type", "created_at"
+            "profile_type", "created_at"  # Geändert von `type` zu `profile_type`
         ]
         read_only_fields = ["created_at"]
+
+    def to_representation(self, instance):
+        """
+        Ändert die API-Response, sodass `profile_type` als `type` zurückgegeben wird.
+        """
+        rep = super().to_representation(instance)
+        rep["type"] = instance.profile_type  # API gibt weiterhin `type` zurück
+        return rep
 
 
 class ProfilTypeSerializer(serializers.ModelSerializer):
@@ -221,16 +292,24 @@ class ProfilTypeSerializer(serializers.ModelSerializer):
     - `file`, `location`, `tel`, `description`, `working_hours`, and `type`: Profile-specific fields.
     - `created_at` is read-only.
     """
-    user = UserSerializer() # Includes full user details instead of just the ID
-    
+    user = UserSerializer()
+
     class Meta:
         model = Profil
         fields = [
             "user", "file",
             "location", "tel", "description", "working_hours",
-            "type", "created_at"
+            "profile_type", "created_at"  # Geändert von `type` zu `profile_type`
         ]
         read_only_fields = ["created_at"]
+
+    def to_representation(self, instance):
+        """
+        Ändert die API-Response, sodass `profile_type` als `type` zurückgegeben wird.
+        """
+        rep = super().to_representation(instance)
+        rep["type"] = instance.profile_type  # API gibt weiterhin `type` zurück
+        return rep
 
 
 class ReviewsSerializer(serializers.ModelSerializer):

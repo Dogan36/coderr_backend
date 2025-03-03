@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from ..models import Offers, OfferDetails, Orders, Profil, Reviews
-from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer, OrderCreateSerializer
+from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilDetailSerializer, ProfilUpdateSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer, OrderCreateSerializer
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
@@ -81,8 +81,6 @@ class OffersViewSet(viewsets.ModelViewSet):
             instance = serializer.instance
             instance.image = image
             instance.save()
-        else:
-            serializer.save()
             
     def perform_update(self, serializer):
         """
@@ -197,9 +195,11 @@ class OrdersViewSet(viewsets.ModelViewSet):
         - Staff users can access all orders.
         """
         queryset = Orders.objects.all()
+        print("🔍 Query-Parameter:", queryset.values())
         id = self.request.user.id
-        queryset = queryset.filter(customer_user=id) | queryset.filter(business_user=id)
-        print(queryset)
+        print("🔍 User-ID:", id)
+        queryset = queryset.filter(customer_user_id=id) | queryset.filter(business_user_id=id)
+        print("🔍 Query-Set:", queryset)
         return queryset
     
     
@@ -211,49 +211,62 @@ class ProfileDetailView(generics.RetrieveUpdateAPIView):
     - Allows partial updates (`PATCH`) and full updates (`PUT`).
     - Handles profile image updates.
     """
-    queryset = Profil.objects.all()
-    serializer_class = ProfilSerializer
-
-    def get(self, request, pk, *args, **kwargs):
-        """
-        Retrieves the profile of the user with the given `pk`.
-        
-        - Returns a 404 response if the profile is not found.
-        """
-        profil = get_object_or_404(Profil, user__id=pk)
-        serializer = self.get_serializer(profil)
-        return Response(serializer.data, status=status.HTTP_200_OK)
     
-    def perform_update(self, serializer):
+    queryset = Profil.objects.all()
+
+    def get_serializer_class(self):
         """
-        Updates the profile, including handling file uploads.
-        
-        - If an image is provided in the request, it updates the profile picture.
-        - Otherwise, it performs a standard update.
+        Verwendet je nach Anfrage `ProfilDetailSerializer` oder `ProfilUpdateSerializer`.
         """
-        image = self.request.FILES.get('image', None)
-        if image is not None:
-            instance = serializer.instance
-            instance.file = image  # Direkt das Bild setzen
-            instance.save()
-        else:
-            serializer.save()
-            
-    def patch(self, request, pk, *args, **kwargs):
+        if self.request.method == "PATCH":
+            return ProfilUpdateSerializer
+        return ProfilDetailSerializer
+
+    def get_object(self):
+        return get_object_or_404(Profil, user__id=self.kwargs["pk"])
+
+    def patch(self, request, *args, **kwargs):
         """
-        Partially updates the profile.
-        
-        - Supports updating individual fields.
-        - Returns 400 if the provided data is invalid.
+        Aktualisiert Profil- und User-Daten über `FormData`, inklusive Bild-Upload.
         """
-        profil = get_object_or_404(Profil, user__id=pk)
-        serializer = self.get_serializer(profil, data=request.data, partial=True)
+        instance = self.get_object()
+
+        # Konvertiere `QueryDict` in normales Dict
+        data = request.POST.dict()
+        files = request.FILES  # Enthält hochgeladene Dateien
+
+        print("📩 FormData Request-Daten:", data)
+        print("🖼️ Hochgeladene Datei:", files.get("file"))
+
+        # User-Felder in `user` verschieben
+        user_fields = ["username", "first_name", "last_name", "email"]
+        user_data = {key: data.pop(key) for key in user_fields if key in data}
+
+        # Korrekte JSON-Struktur erstellen
+        if user_data:
+            data["user"] = user_data
+
+        # Serializer mit `data` aufrufen (ohne `files`)
+        serializer = self.get_serializer(instance, data=data, partial=True)
+
         if serializer.is_valid():
-            serializer.save()
+            self.perform_update(serializer)  # Bild wird in `perform_update()` gespeichert
             return Response(serializer.data, status=status.HTTP_200_OK)
 
+        print("❌ Serializer-Fehler:", serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def perform_update(self, serializer):
+        """
+        Speichert das Profil-Update, einschließlich des Bild-Uploads.
+        """
+        image = self.request.FILES.get("file")  # Datei aus `request.FILES` abrufen
+
+        if image:
+            serializer.instance.file = image  # Datei im `file`-Feld speichern
+            serializer.instance.save()
+
+        serializer.save()
 
 class BusinessProfilesListView(generics.ListAPIView):
     """
@@ -268,7 +281,7 @@ class BusinessProfilesListView(generics.ListAPIView):
         """
         Filters the queryset to return only business profiles.
         """
-        return Profil.objects.filter(type="business")
+        return Profil.objects.filter(profile_type="business")
 
 
 class CustomerProfilesListView(generics.ListAPIView):
@@ -283,7 +296,7 @@ class CustomerProfilesListView(generics.ListAPIView):
         """
         Filters the queryset to return only customer profiles.
         """
-        return Profil.objects.filter(type="customer")
+        return Profil.objects.filter(profile_type="customer")
 
 
   
@@ -312,9 +325,10 @@ class ReviewsViewSet(viewsets.ModelViewSet):
             profil = Profil.objects.get(user=user)
         except Profil.DoesNotExist:
             return Reviews.objects.none()
-        if profil.type == "customer":
+        queryset = Reviews.objects.none()
+        if profil.profile_type == "customer":
             return Reviews.objects.filter(reviewer=user)
-        elif profil.type == "business":
+        elif profil.profile_type == "business":
             return Reviews.objects.filter(business_user=user)
         ordering = self.request.query_params.get("ordering")
         if ordering:
@@ -411,6 +425,8 @@ class RegisterAPIView(APIView):
         password = request.data.get("password")
         repeated_password = request.data.get("repeated_password")
         email = request.data.get("email")
+        type = request.data.get("type")
+        print("🔑 Registrierungsdaten:", username, email, type)
         # Validate required fields
         if not username:
             return Response({"error": "Username ist erforderlich."}, status=status.HTTP_400_BAD_REQUEST)
@@ -418,6 +434,8 @@ class RegisterAPIView(APIView):
             return Response({"error": "Email ist erforderlich."}, status=status.HTTP_400_BAD_REQUEST)
         if not password:
             return Response({"error": "Passwort ist erforderlich."}, status=status.HTTP_400_BAD_REQUEST)
+        if not type:
+            return Response({"error": "Type ist erforderlich."}, status=status.HTTP_400_BAD_REQUEST)
         # Validate email format
         try:
             validate_email(email)
@@ -434,13 +452,14 @@ class RegisterAPIView(APIView):
             return Response({"error": "Diese E-Mail-Adresse wird bereits verwendet."}, status=status.HTTP_400_BAD_REQUEST)
         # Create user and associated profile
         user = User.objects.create_user(username=username, password=password, email=email)
-        Profil.objects.create(user=user)  # Profil für den User erstellen
+        Profil.objects.create(user=user, profile_type=type)  # Profil für den User erstellen
         token, _ = Token.objects.get_or_create(user=user)  # Token erstellen
 
         return Response({
             "user_id": user.id,
             "email": user.email,
             "username": user.username,
+            "profile_type": type,
             "token": token.key
         }, status=status.HTTP_201_CREATED)
 
@@ -470,7 +489,7 @@ class BaseInfoViewSet(viewsets.ViewSet):
         review_count = Reviews.objects.count()
         average_rating = Reviews.objects.aggregate(avg_rating=Avg("rating"))["avg_rating"] or 0
         offer_count = Offers.objects.count()
-        business_profile_count = Profil.objects.filter(type="business").count()
+        business_profile_count = Profil.objects.filter(profile_type="business").count()
 
         return Response({
             "review_count": review_count,

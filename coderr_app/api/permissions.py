@@ -13,7 +13,7 @@ class IsCustomerForCreateOnly(BasePermission):
         if request.method == "POST":
             try:
                 profil = Profil.objects.get(user=request.user)
-                return profil.type == "customer" 
+                return profil.profile_type == "customer" 
             except Profil.DoesNotExist:
                 return False 
         return True
@@ -23,7 +23,7 @@ class IsBusinessForCreateOnly(BasePermission):
         if request.method == "POST":
             try:
                 profil = Profil.objects.get(user=request.user)
-                return profil.type == "business" 
+                return profil.profile_type == "business" 
             except Profil.DoesNotExist:
                 return False 
         return True

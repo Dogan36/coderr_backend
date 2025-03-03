@@ -3,6 +3,8 @@
 This is a practice project as part of the Backend Developer training at **Developer Akademie**.  
 The project is a backend system developed using Django Rest Framework (DRF) and serves as an API for handling offers, orders, reviews, and user management.
 
+Frontend: Coderr_frontend_v1.1.0
+
 ## 🚀 Features
 - **User Authentication**: Registration, login, and role-based access.
 - **Profile Management**: Customers and business users with different permissions.
