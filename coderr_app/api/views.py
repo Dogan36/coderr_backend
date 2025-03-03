@@ -394,6 +394,7 @@ class RegisterAPIView(APIView):
     - Ensures unique usernames and emails.
     - Creates an authentication token upon successful registration.
     """
+    permission_classes = []
     def post(self, request):
         """
         Handles user registration.
