@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission
+from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission, IsUniqueReviewer, IsOwnerCustomerOrAdmin
 from rest_framework.generics import RetrieveUpdateAPIView
 from .pagination import LargeResultsSetPagination
 
@@ -73,19 +73,20 @@ class OffersViewSet(viewsets.ModelViewSet):
         if self.request.method in ["PATCH", "DELETE"]:
             print("✅ PATCH-Berechtigung aktiviert!")  
             return [IsOwnerForPatchOnly()]
-        return [IsAuthenticated()]
+        return []
     
 
     def perform_create(self, serializer):
         """
         Erstellt ein neues Angebot und speichert das Bild.
         """
-        serializer.save(user=self.request.user)
+        instance = serializer.save(user=self.request.user)  
         image = self.request.FILES.get('image', None)
         if image:
             instance = serializer.instance
             instance.image = image
             instance.save()
+        
 
     def update(self, request, *args, **kwargs):
         """
@@ -212,7 +213,7 @@ class OrdersViewSet(viewsets.ModelViewSet):
     - `PATCH /orders/{id}/` → Nur der Business-User oder ein Admin darf `status` ändern.
     - `DELETE /orders/{id}/` → Nur Admins dürfen Bestellungen löschen.
     """
-
+    queryset = Orders.objects.all()
     def get_permissions(self):
         """
         Setzt verschiedene Berechtigungen je nach HTTP-Methode:
@@ -245,10 +246,21 @@ class OrdersViewSet(viewsets.ModelViewSet):
         if user.is_staff:
             return Orders.objects.all()  # Admins sehen ALLES
 
-        return Orders.objects.filter(
-            customer_user__user=user
-        ) | Orders.objects.filter(business_user=user)
+        return Orders.objects.filter(customer_user=user) | Orders.objects.filter(business_user=user)
+    def create(self, request, *args, **kwargs):
+        """
+        Erstellt eine Bestellung basierend auf einem Angebot.
+        """
+        print("🛒 Neue Bestellung wird erstellt...")  # Debug-Log
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
 
+        order = serializer.save()  # Speichert die Bestellung
+
+        # ✅ Rückgabe des erstellten Objekts als JSON
+        output_serializer = OrdersSerializer(order, context={'request': request})
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+    
     def update(self, request, *args, **kwargs):
         """
         - Nur `status` darf per PATCH geändert werden.
@@ -290,6 +302,7 @@ class ProfileDetailView(RetrieveUpdateAPIView):
     """
     queryset = Profil.objects.all()
     serializer_class = ProfilSerializer
+    permission_classes = [IsAuthenticated]
     def get_object(self):
         """
         Holt das `Profil` anhand der User-ID (`pk` ist die `user_id`).
@@ -369,10 +382,9 @@ class ReviewsViewSet(viewsets.ModelViewSet):
 
     queryset = Reviews.objects.all()
     serializer_class = ReviewsSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["updated_at", "rating"]
-
+    permission_classes = [IsAuthenticated, IsCustomerForCreateOnly, IsUniqueReviewer, IsOwnerCustomerOrAdmin]
     def get_queryset(self):
         """
         Gibt Bewertungen basierend auf Filter-Parametern zurück:
@@ -393,28 +405,11 @@ class ReviewsViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """
         Erstellt eine neue Bewertung:
-        - Nur Kunden (`profile_type == "customer"`) dürfen Bewertungen schreiben.
-        - Ein Business darf nur einmal von demselben Benutzer bewertet werden.
+        - Prüft, ob das Business bereits vom Benutzer bewertet wurde.
+        - Prüft, ob der Benutzer überhaupt ein `customer`-Profil hat.
         """
         request_user = self.request.user
-
-        # Prüfe, ob der Benutzer ein Kundenprofil hat
-        profil = Profil.objects.filter(user=request_user).first()
-        if not profil or profil.profile_type != "customer":
-            return Response(
-                {"error": "Nur Kunden können Bewertungen schreiben."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        business_user = serializer.validated_data.get("business_user")
-
-        # Überprüfe, ob der Benutzer das Business bereits bewertet hat
-        if Reviews.objects.filter(business_user=business_user, reviewer=request_user).exists():
-            return Response(
-                {"error": "Du kannst ein Business nur einmal bewerten."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        
         serializer.save(reviewer=request_user)
 
     def perform_update(self, serializer):

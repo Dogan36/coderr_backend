@@ -119,9 +119,10 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         offer_detail_id = validated_data.pop('offer_detail_id')
         
         # 🔍 1. OfferDetails abrufen
-        offer_detail = OfferDetails.objects.filter(id=offer_detail_id).first()
-        if not offer_detail:
-            raise serializers.ValidationError({"error": "OfferDetail not found"})
+        try:
+            offer_detail = OfferDetails.objects.get(id=offer_detail_id)
+        except OfferDetails.DoesNotExist:
+            raise serializers.ValidationError("OfferDetail not found")
 
         # 🔍 2. Request-Objekt sicherstellen
         request = self.context.get("request")
@@ -129,15 +130,13 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"error": "Invalid request context or unauthenticated user"})
 
         # 🔍 3. Kundenprofil abrufen
-        customer_profile = Profil.objects.filter(user=request.user).first()
-        if not customer_profile:
-            raise serializers.ValidationError({"error": "Customer profile not found"})
+        request_user = self.context['request'].user
         
-        print(f"✅ Customer Profile gefunden: {customer_profile}")
+        print(f"✅ Customer Profile gefunden: {request_user}")
 
         # 📝 4. Order-Daten vorbereiten
         order_data = {
-            "customer_user": customer_profile,
+            "customer_user": request_user,
             "business_user": offer_detail.offer.user,
             "title": offer_detail.offer.title,
             "revisions": offer_detail.revisions,

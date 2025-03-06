@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from coderr_app.models import Profil, Orders, Offers
+from coderr_app.models import Profil, Orders, Offers, Reviews
 
 class IsAdminOrCustomPermission(BasePermission):
     """
@@ -44,7 +44,13 @@ class IsBusinessForPatchOnly(IsAdminOrCustomPermission):
             return order.business_user == request.user
         except Orders.DoesNotExist:
             return False  # Falls Bestellung nicht existiert, verweigern
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_staff:  # Admins dürfen immer
+            return True
 
+        # Nur der Business-User darf PATCH-Anfragen senden
+        return request.method == "PATCH" and obj.business_user == request.user
+    
 class IsCustomerForCreateOnly(IsAdminOrCustomPermission):
     def has_permission(self, request, view):
         # Prüfe, ob die Anfrage eine Bestellung erstellen will
@@ -55,6 +61,11 @@ class IsCustomerForCreateOnly(IsAdminOrCustomPermission):
             except Profil.DoesNotExist:
                 return False 
         return True
+    def has_object_permission(self, request, view, obj):
+        # `GET` für alle erlauben
+        if request.method == "GET":
+            return True
+        return self.has_permission(request, view)
     
 class IsBusinessForCreateOnly(IsAdminOrCustomPermission):
     """
@@ -104,3 +115,59 @@ class IsOwnerForPatchOnly(IsAdminOrCustomPermission):
         print(f"🔎 has_object_permission() aufgerufen für: {obj}")
         return request.user == obj.user or request.user.is_staff 
 
+class IsUniqueReviewer(BasePermission):
+    """
+    Erlaubt `POST` nur, wenn der Benutzer das Business noch nicht bewertet hat.
+    """
+    
+    def has_permission(self, request, view):
+        # Falls es keine `POST`-Anfrage ist, Permission erlauben (GET, PATCH, DELETE sind erlaubt)
+        if request.method != "POST":
+            return True
+
+        # Business-ID aus der Anfrage holen
+        business_user = request.data.get("business_user")
+
+        # Falls keine Business-ID übergeben wurde, abbrechen (müsste eigentlich schon vom Serializer geprüft werden)
+        if not business_user:
+            return False
+
+        # Prüfen, ob der aktuelle Benutzer das Business bereits bewertet hat
+        already_reviewed = Reviews.objects.filter(business_user=business_user, reviewer=request.user).exists()
+        
+        # Falls eine Bewertung existiert, verweigern wir die Erlaubnis
+        if already_reviewed:
+            return False
+        
+        return True
+    def has_object_permission(self, request, view, obj):
+        # `GET` für alle erlauben
+        if request.method == "GET":
+            return True
+        return self.has_permission(request, view)
+    
+class IsOwnerCustomerOrAdmin(BasePermission):
+    """
+    Erlaubt `PATCH` und `DELETE` nur für den Ersteller der Bewertung, wenn dieser ein `customer`-Profil hat.
+    Admins dürfen immer bearbeiten/löschen.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        # `GET` für alle Benutzer erlauben
+        if request.method == "GET":
+            return True
+
+        # Ersteller der Bewertung und Admins dürfen bearbeiten/löschen
+        if request.method in ["PATCH", "DELETE"]:
+            # Prüfen, ob der Nutzer ein `customer`-Profil hat
+            try:
+                profil = Profil.objects.get(user=request.user)
+                if profil.profile_type == "customer" and obj.reviewer == request.user:
+                    return True  # ✅ Erlaubt für Kunden, die ihre eigene Bewertung bearbeiten
+            except Profil.DoesNotExist:
+                return False
+
+            # Admins dürfen immer bearbeiten/löschen
+            return request.user.is_staff
+
+        return False
