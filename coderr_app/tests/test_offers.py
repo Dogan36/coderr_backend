@@ -53,8 +53,32 @@ class TestOffersAPI(APITestCase):
         response = self.client.post(self.offers_url, {
             "title": "New Offer",
             "description": "New offer description",
-            "min_price": 100,
-            "min_delivery_time": 5,
+           "details": [
+                {
+                    "title": "Basic",
+                    "price": 50,
+                    "revisions": 1,
+                    "delivery_time_in_days": 3,
+                    "features": ["Feature 1"],
+                    "offer_type": "basic"
+                },
+                {
+                    "title": "Basic",
+                    "price": 50,
+                    "revisions": 1,
+                    "delivery_time_in_days": 3,
+                    "features": ["Feature 1"],
+                    "offer_type": "standard"
+                },
+                {
+                    "title": "Basic",
+                    "price": 50,
+                    "revisions": 1,
+                    "delivery_time_in_days": 3,
+                    "features": ["Feature 1"],
+                    "offer_type": "premium"
+                }
+            ]
         }, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
