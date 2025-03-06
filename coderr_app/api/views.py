@@ -1,4 +1,5 @@
 from email.mime import image
+import re
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -6,7 +7,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from ..models import Offers, OfferDetails, Orders, Profil, Reviews
-from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilDetailSerializer, ProfilUpdateSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer, OrderCreateSerializer
+from .serializers import OffersSerializer, OfferDetailsSerializer, OrdersSerializer, ProfilSerializer, ReviewsSerializer, UserSerializer, ProfilTypeSerializer, OrderCreateSerializer
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from rest_framework.authtoken.models import Token
@@ -17,19 +18,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from coderr_app.api.permissions import IsBusinessForCreateOnly, IsStaffForDeleteOnly, IsCustomerForCreateOnly
-
-class LargeResultsSetPagination(PageNumberPagination):
-    """
-    Custom pagination class for handling large datasets.
-    
-    - `page_size`: Default number of items per page (6).
-    - `page_size_query_param`: Allows clients to request a different page size.
-    - `max_page_size`: Maximum limit a client can request (100).
-    """
-    page_size = 6
-    page_size_query_param = 'page_size'
-    max_page_size = 6
+from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission
+from rest_framework.generics import RetrieveUpdateAPIView
+from .pagination import LargeResultsSetPagination
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -46,98 +37,158 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
+
+
 class OffersViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing offers.
+    ViewSet für Angebote.
 
-    - Requires authentication and restricts offer creation to business users only.
-    - Supports search and filtering based on `title`, `description`, and `user`.
-    - Provides pagination with `LargeResultsSetPagination`.
-    - Allows file uploads using `MultiPartParser`.
-
-    Permissions:
-    - Only authenticated users can access.
-    - Only business users can create offers.
+    - Authentifizierung erforderlich.
+    - `POST`: Nur Business-User dürfen erstellen.
+    - `PATCH/DELETE`: Nur Business-User dürfen ihre eigenen Angebote ändern.
+    - `GET`: Alle authentifizierten Benutzer dürfen Angebote sehen.
     """
     queryset = Offers.objects.all()
-    permission_classes = [IsAuthenticated, IsBusinessForCreateOnly]
     serializer_class = OffersSerializer
     filter_backends = [filters.SearchFilter, DjangoFilterBackend]
     search_fields = ['title', 'description']
     filterset_fields = ['user']
     pagination_class = LargeResultsSetPagination
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+    def get_object(self):
+        """
+        Gibt das aktuelle Offer-Objekt zurück.
+        """
+        obj = super().get_object()
+        print(f"🔍 get_object() liefert: {obj}")  
+        return obj
+    def get_permissions(self):
+        """
+        Setzt verschiedene Berechtigungen je nach HTTP-Methode.
+        """
+        print(f"🔑 Request Methode: {self.request.method}")  
+
+        if self.request.method == "POST":
+            return [IsBusinessForCreateOnly()]
+        if self.request.method in ["PATCH", "DELETE"]:
+            print("✅ PATCH-Berechtigung aktiviert!")  
+            return [IsOwnerForPatchOnly()]
+        return [IsAuthenticated()]
     
+
     def perform_create(self, serializer):
         """
-        Handles the creation of a new offer.
-        
-        - Automatically assigns the authenticated user as the offer creator.
-        - Handles optional image upload.
+        Erstellt ein neues Angebot und speichert das Bild.
         """
         serializer.save(user=self.request.user)
         image = self.request.FILES.get('image', None)
-        if image is not None:
+        if image:
             instance = serializer.instance
             instance.image = image
             instance.save()
-            
+
+    def update(self, request, *args, **kwargs):
+        """
+        Überschreibt `update()`, um `PATCH` zu unterstützen.
+        """
+        print("🔄 update() in View wird aufgerufen!")  
+        kwargs['partial'] = True  # `PATCH` erlaubt partielle Updates
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         """
-        Handles updating an existing offer.
-        
-        - Supports image updates if a new file is provided.
+        Behandelt das eigentliche Update des Angebots:
+        - Normale Felder werden aktualisiert.
+        - Falls `offer_details` vorhanden sind, werden sie neu erstellt.
+        - `min_price` & `min_delivery_time` werden aktualisiert.
         """
+        print("🔄 perform_update() wird aufgerufen!")  
+
+        instance = serializer.instance
+        validated_data = serializer.validated_data
+
+        # 🔹 Datei-Upload (`image`) separat behandeln
         image = self.request.FILES.get('image', None)
-        if image is not None:
-            instance = serializer.instance
+        if image:
             instance.image = image
-            instance.save()
-        else:
-            serializer.save()
-            
+
+        # 🔹 Standard-Felder aktualisieren
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # 🔹 Falls `offer_details` mitgeschickt wurden, alte löschen & neu erstellen
+        details_data = self.request.data.get("offer_details", None)
+        if details_data is not None:
+            instance.offer_details.all().delete()
+            for detail_data in details_data:
+                OfferDetails.objects.create(offer=instance, **detail_data)
+
+        # 🔹 `min_price` & `min_delivery_time` neu berechnen
+        aggregated = OfferDetails.objects.filter(offer=instance).aggregate(
+            min_price=Min("price"),
+            min_delivery_time=Min("delivery_time_in_days")
+        )
+        instance.min_price = aggregated.get('min_price') or 0
+        instance.min_delivery_time = aggregated.get('min_delivery_time') or 0
+
+        instance.save()  # 🔥 Alle Änderungen speichern!
+
     def get_queryset(self):
         """
-        Custom queryset filtering:
-        
-        - `creator_id`: Filters offers by user ID.
-        - `min_price`: Filters offers with a minimum price.
-        - `max_delivery_time`: Filters offers with a maximum delivery time.
-        - `ordering`: Supports sorting by `created_at` or `updated_at`.
+        Gibt gefilterte Angebote basierend auf Query-Parametern zurück.
         """
         queryset = Offers.objects.all()
-        creator_id = self.request.query_params.get("creator_id")
-        min_price = self.request.query_params.get("min_price")
-        max_delivery_time = self.request.query_params.get("max_delivery_time")
-        ordering = self.request.query_params.get("ordering", "created_at")
-        if ordering:
-            if ordering == "updated_at" or ordering == "-updated_at":
-                queryset = queryset.order_by(ordering).reverse()
-            else:
-                queryset = queryset.order_by(ordering)
+        params = self.request.query_params
+
+        creator_id = params.get("creator_id")
+        min_price = params.get("min_price")
+        max_delivery_time = params.get("max_delivery_time")
+        ordering = params.get("ordering", "created_at")
+
+        # Sortierung anwenden
+        if ordering in ["created_at", "-created_at", "updated_at", "-updated_at"]:
+            queryset = queryset.order_by(ordering)
+
+        # Filter anwenden
         if creator_id:
-            queryset = queryset.filter(user_id=creator_id)  # `user_id`, weil `user` ein ForeignKey ist
+            queryset = queryset.filter(user_id=creator_id)
         if min_price:
-             queryset = queryset.filter(min_price__gte=float(min_price))
+            try:
+                queryset = queryset.filter(min_price__gte=float(min_price))
+            except ValueError:
+                pass
         if max_delivery_time:
+            if not max_delivery_time.isdigit():
+                raise ValueError("Max delivery time must be a number.")
             queryset = queryset.filter(min_delivery_time__lte=int(max_delivery_time))
+
         return queryset
-    
+
     def list(self, request, *args, **kwargs):
         """
-        Custom list view to support pagination.
-
-        - Uses Django's built-in pagination.
-        - Applies search and filter criteria before returning results.
+        Gibt eine paginierte Liste der Angebote zurück.
         """
-        queryset = self.filter_queryset(self.get_queryset())  # Suchfilter anwenden
+        try:
+            queryset = self.filter_queryset(self.get_queryset())
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)  # Direkt zurückgeben!
+
+        # Paginierung anwenden
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
+
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
-    
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Löscht ein Angebot und gibt `{}` als Response zurück.
+        """
+        instance = self.get_object()  # Das Objekt abrufen
+        self.perform_destroy(instance)  # Standard-Löschlogik von DRF aufrufen
+        return Response({}, status=status.HTTP_204_NO_CONTENT)  # ✅ `{}` zurückgeben
     
 class OfferDetailsViewSet(viewsets.ModelViewSet):
     """
@@ -153,121 +204,127 @@ class OfferDetailsViewSet(viewsets.ModelViewSet):
 
 class OrdersViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing orders.
-
-    - Only authenticated users can access.
-    - Only customers can create orders (`IsCustomerForCreateOnly`).
-    - Only staff members can delete orders (`IsStaffForDeleteOnly`).
-    - Users can only see orders where they are either the customer or the business user.
-    """
-    permission_classes = [IsAuthenticated, IsStaffForDeleteOnly, IsCustomerForCreateOnly]
-    queryset = Orders.objects.all()
+    ViewSet für Bestellungen (Orders).
     
+    - `GET /orders/` → Liste der eigenen Bestellungen (als Kunde oder Anbieter).
+    - `POST /orders/` → Bestellung erstellen (Nur `customer_user` erlaubt).
+    - `GET /orders/{id}/` → Details einer Bestellung abrufen.
+    - `PATCH /orders/{id}/` → Nur der Business-User oder ein Admin darf `status` ändern.
+    - `DELETE /orders/{id}/` → Nur Admins dürfen Bestellungen löschen.
+    """
+
+    def get_permissions(self):
+        """
+        Setzt verschiedene Berechtigungen je nach HTTP-Methode:
+        - `POST`: Nur Kunden (`IsCustomerForCreateOnly`).
+        - `PATCH`: Nur Anbieter (`business_user`) oder Admins (`IsBusinessForPatchOnly`).
+        - `DELETE`: Nur Admins (`IsAdminOrCustomPermission`).
+        """
+        if self.request.method == "POST":
+            return [IsCustomerForCreateOnly()]
+        if self.request.method == "PATCH":
+            return [IsBusinessForPatchOnly()]
+        if self.request.method == "DELETE":
+            return [IsAdminOrCustomPermission()]
+        return [IsAuthenticated()]
+
     def get_serializer_class(self):
         """
-        Uses `OrderCreateSerializer` for creating orders.
-        Otherwise, `OrdersSerializer` is used for retrieving, updating, and listing orders.
+        Nutzt `OrderCreateSerializer` für `POST`, sonst `OrdersSerializer`.
         """
-        if self.action == 'create':
+        if self.request.method == "POST":
             return OrderCreateSerializer
         return OrdersSerializer
 
-    def create(self, request, *args, **kwargs):
-        """
-        Handles order creation.
-
-        - Uses `OrderCreateSerializer` to validate input.
-        - Saves the new order.
-        - Returns the created order in the response using `OrdersSerializer`.
-        """
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
-        order = serializer.save()
-        # Serialisiere das erstellte Order-Objekt für die Antwort
-        output_serializer = OrdersSerializer(order, context={'request': request})
-        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
-    
     def get_queryset(self):
         """
-        Custom queryset filtering:
-        
-        - Users can only view orders where they are either the customer or the business user.
-        - Staff users can access all orders.
+        Gibt NUR die Bestellungen zurück, an denen der Benutzer beteiligt ist.
         """
-        queryset = Orders.objects.all()
-        print("🔍 Query-Parameter:", queryset.values())
-        id = self.request.user.id
-        print("🔍 User-ID:", id)
-        queryset = queryset.filter(customer_user_id=id) | queryset.filter(business_user_id=id)
-        print("🔍 Query-Set:", queryset)
-        return queryset
-    
-    
-class ProfileDetailView(generics.RetrieveUpdateAPIView):
-    """
-    API view for retrieving and updating user profiles.
+        user = self.request.user
 
-    - Allows retrieving (`GET`) a profile based on the user's ID.
-    - Allows partial updates (`PATCH`) and full updates (`PUT`).
-    - Handles profile image updates.
-    """
-    
-    queryset = Profil.objects.all()
+        if user.is_staff:
+            return Orders.objects.all()  # Admins sehen ALLES
 
-    def get_serializer_class(self):
+        return Orders.objects.filter(
+            customer_user__user=user
+        ) | Orders.objects.filter(business_user=user)
+
+    def update(self, request, *args, **kwargs):
         """
-        Verwendet je nach Anfrage `ProfilDetailSerializer` oder `ProfilUpdateSerializer`.
+        - Nur `status` darf per PATCH geändert werden.
+        - Nur der `business_user` kann den Status ändern.
+        - Admins dürfen ALLES ändern.
         """
-        if self.request.method == "PATCH":
-            return ProfilUpdateSerializer
-        return ProfilDetailSerializer
+        print("🔄 PATCH Request für Bestellung erkannt!")
 
-    def get_object(self):
-        return get_object_or_404(Profil, user__id=self.kwargs["pk"])
+        instance = self.get_object()
 
-    def patch(self, request, *args, **kwargs):
+        new_status = request.data.get("status")
+        valid_status_choices = [choice[0] for choice in Orders.status_choices]
+
+        if new_status not in valid_status_choices:
+            return Response(
+                {"error": f"Ungültiger Status. Erlaubt: {valid_status_choices}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        instance.status = new_status
+        instance.save()
+        serializer = self.get_serializer(instance)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
         """
-        Aktualisiert Profil- und User-Daten über `FormData`, inklusive Bild-Upload.
+        - NUR Admins dürfen Bestellungen löschen.
         """
         instance = self.get_object()
 
-        # Konvertiere `QueryDict` in normales Dict
-        data = request.POST.dict()
-        files = request.FILES  # Enthält hochgeladene Dateien
+        instance.delete()
+        return Response({}, status=status.HTTP_200_OK)
+    
+    
+class ProfileDetailView(RetrieveUpdateAPIView):
+    """
+    API-View für das Abrufen und Aktualisieren eines Profils.
+    """
+    queryset = Profil.objects.all()
+    serializer_class = ProfilSerializer
+    def get_object(self):
+        """
+        Holt das `Profil` anhand der User-ID (`pk` ist die `user_id`).
+        """
+        return get_object_or_404(Profil, user__id=self.kwargs["pk"])
 
-        print("📩 FormData Request-Daten:", data)
-        print("🖼️ Hochgeladene Datei:", files.get("file"))
+    def get(self, request, *args, **kwargs):
+        """
+        GET: Gibt das Benutzerprofil zurück.
+        """
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Profil.DoesNotExist:
+            return Response({"error": "Profil nicht gefunden."}, status=status.HTTP_404_NOT_FOUND)
+    
+    def patch(self, request, *args, **kwargs):
+        """
+        PATCH: Aktualisiert das Benutzerprofil.
+        """
+        instance = self.get_object()
 
-        # User-Felder in `user` verschieben
-        user_fields = ["username", "first_name", "last_name", "email"]
-        user_data = {key: data.pop(key) for key in user_fields if key in data}
+        # Überprüfen, ob der Benutzer berechtigt ist (wenn nur eigene Profile bearbeitet werden dürfen)
+        if instance.user != request.user and not request.user.is_superuser:
+            return Response({"error": "Keine Berechtigung zum Bearbeiten dieses Profils."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Korrekte JSON-Struktur erstellen
-        if user_data:
-            data["user"] = user_data
-
-        # Serializer mit `data` aufrufen (ohne `files`)
-        serializer = self.get_serializer(instance, data=data, partial=True)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
 
         if serializer.is_valid():
-            self.perform_update(serializer)  # Bild wird in `perform_update()` gespeichert
+            serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        print("❌ Serializer-Fehler:", serializer.errors)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def perform_update(self, serializer):
-        """
-        Speichert das Profil-Update, einschließlich des Bild-Uploads.
-        """
-        image = self.request.FILES.get("file")  # Datei aus `request.FILES` abrufen
-
-        if image:
-            serializer.instance.file = image  # Datei im `file`-Feld speichern
-            serializer.instance.save()
-
-        serializer.save()
-
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
+        
 class BusinessProfilesListView(generics.ListAPIView):
     """
     API view for listing all business profiles.
@@ -302,73 +359,103 @@ class CustomerProfilesListView(generics.ListAPIView):
   
 class ReviewsViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing reviews.
-
-    - Customers can create reviews (restricted via `IsCustomerForCreateOnly`).
-    - Users can only see reviews they wrote (customers) or received (business users).
-    - Prevents duplicate reviews for the same business.
-    - Only reviewers or admins can update or delete reviews.
+    ViewSet für die Verwaltung von Bewertungen.
+    
+    - Alle Benutzer können Bewertungen sehen.
+    - Nur `customer`-Nutzer können neue Bewertungen erstellen.
+    - Eine Firma kann nur einmal von demselben Benutzer bewertet werden.
+    - Nur der Ersteller oder ein Admin darf eine Bewertung bearbeiten oder löschen.
     """
+
     queryset = Reviews.objects.all()
     serializer_class = ReviewsSerializer
-    permission_classes = [IsAuthenticated, IsCustomerForCreateOnly]
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["updated_at", "rating"]
+
     def get_queryset(self):
         """
-        Returns a filtered queryset based on the user's profile type.
-
-        - Customers see only the reviews they created.
-        - Business users see only reviews about their business.
-        - If the user has no profile, they receive an empty queryset.
+        Gibt Bewertungen basierend auf Filter-Parametern zurück:
+        - `business_user_id`: Bewertungen eines bestimmten Geschäftsbenutzers.
+        - `reviewer_id`: Bewertungen eines bestimmten Erstellers.
         """
-        user = self.request.user
-        try:
-            profil = Profil.objects.get(user=user)
-        except Profil.DoesNotExist:
-            return Reviews.objects.none()
-        queryset = Reviews.objects.none()
-        if profil.profile_type == "customer":
-            return Reviews.objects.filter(reviewer=user)
-        elif profil.profile_type == "business":
-            return Reviews.objects.filter(business_user=user)
-        ordering = self.request.query_params.get("ordering")
-        if ordering:
-            if ordering == "created_at" or ordering == "-created_at":
-                queryset = queryset.order_by(ordering).reverse()
-            else:
-                queryset = queryset.order_by(ordering)
+        queryset = Reviews.objects.all()
+        business_user_id = self.request.query_params.get("business_user_id")
+        reviewer_id = self.request.query_params.get("reviewer_id")
+
+        if business_user_id:
+            queryset = queryset.filter(business_user_id=business_user_id)
+        if reviewer_id:
+            queryset = queryset.filter(reviewer_id=reviewer_id)
+
         return queryset
-    
+
     def perform_create(self, serializer):
         """
-        Ensures that:
-        - Only customers can create reviews.
-        - A business can be reviewed only once by the same user.
+        Erstellt eine neue Bewertung:
+        - Nur Kunden (`profile_type == "customer"`) dürfen Bewertungen schreiben.
+        - Ein Business darf nur einmal von demselben Benutzer bewertet werden.
         """
         request_user = self.request.user
-        try:
-            profil = Profil.objects.get(user=request_user)
-        except Profil.DoesNotExist:
-            return Response("Du benötigst ein Profil, um eine Bewertung abzugeben.")
-        business_user = serializer.validated_data["business_user"]
+
+        # Prüfe, ob der Benutzer ein Kundenprofil hat
+        profil = Profil.objects.filter(user=request_user).first()
+        if not profil or profil.profile_type != "customer":
+            return Response(
+                {"error": "Nur Kunden können Bewertungen schreiben."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        business_user = serializer.validated_data.get("business_user")
+
+        # Überprüfe, ob der Benutzer das Business bereits bewertet hat
         if Reviews.objects.filter(business_user=business_user, reviewer=request_user).exists():
-            return Response("Du kannst ein Business nur einmal bewerten.")
+            return Response(
+                {"error": "Du kannst ein Business nur einmal bewerten."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer.save(reviewer=request_user)
-    
+
     def perform_update(self, serializer):
         """
-        Ensures that only the original reviewer can update their review.
+        Bearbeitet eine Bewertung:
+        - Nur der Ersteller oder ein Admin darf eine Bewertung ändern.
+        - Nur `rating` und `description` dürfen bearbeitet werden.
         """
         instance = self.get_object()
-        if self.request.user != instance.reviewer:
-            return Response("Nur der Reviewer darf die Bewertung ändern.")
+        request_user = self.request.user
+
+        # Prüfe, ob der Benutzer der Ersteller oder ein Admin ist
+        if instance.reviewer != request_user and not request_user.is_staff:
+            return Response(
+                {"error": "Nur der Ersteller oder ein Admin darf die Bewertung bearbeiten."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Nur bestimmte Felder dürfen aktualisiert werden
+        allowed_fields = {"rating", "description"}
+        invalid_fields = set(serializer.validated_data.keys()) - allowed_fields
+
+        if invalid_fields:
+            return Response(
+                {"error": f"Diese Felder können nicht aktualisiert werden: {', '.join(invalid_fields)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         serializer.save()
-        
+
     def perform_destroy(self, instance):
         """
-        Ensures that only the reviewer or an admin can delete a review.
+        Löscht eine Bewertung:
+        - Nur der Ersteller oder ein Admin darf eine Bewertung löschen.
         """
-        if self.request.user != instance.reviewer and not self.request.user.is_staff:
-            return Response("Nur der Reviewer oder ein Admin darf die Bewertung löschen.")
+        request_user = self.request.user
+        if instance.reviewer != request_user and not request_user.is_staff:
+            return Response(
+                {"error": "Nur der Ersteller oder ein Admin darf die Bewertung löschen."},
+                status=status.HTTP_403_FORBIDDEN
+            )
         instance.delete()
         
 class LoginAPIView(APIView):

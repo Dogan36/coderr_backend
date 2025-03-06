@@ -114,8 +114,8 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
         # weitere Authentifizierungsklassen, falls notwendig
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+     'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',  # Erlaubt testweise alles!
     ],
 }
 

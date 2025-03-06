@@ -1,6 +1,8 @@
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 from decimal import Decimal
+def default_features():
+    return []
 class Offers(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
@@ -44,7 +46,7 @@ class Orders(models.Model):
         ('standard', 'Standard'),
         ('premium', 'Premium'),
     ]
-    customer_user = models.ForeignKey('Profil', on_delete=models.CASCADE)
+    customer_user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='customer_orders')
     business_user = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='business_user')
     title = models.CharField(max_length=100)
     revisions = models.IntegerField(default=0, validators=[MinValueValidator(-1)])
@@ -53,10 +55,11 @@ class Orders(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     offer_type = models.CharField(max_length=50, choices=offer_type_choices, default='basic')
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(Decimal("0.00"))])
-    delivery_time_in_days = models.IntegerField(default=0, validators=[MinValueValidator(1)])
-    features = models.JSONField(default=list)
+    delivery_time_in_days = models.IntegerField(default=1, validators=[MinValueValidator(1)])
+    features = models.JSONField(default=default_features)
+
     def __str__(self):
-        return self.title
+        return f"Order {self.id}: {self.title} ({self.status})"
 
 class Profil(models.Model):
     type_choices = [
@@ -66,9 +69,9 @@ class Profil(models.Model):
     user = models.OneToOneField('auth.User', on_delete=models.CASCADE)
     location = models.CharField(max_length=100)
     file =  models.FileField(upload_to='uploads/', blank=True, null=True)
-    tel = models.CharField(max_length=100, null=False, default="")
-    description = models.CharField(max_length=100, null=False, default="")
-    working_hours = models.CharField(max_length=100, null=False, default="")
+    tel = models.CharField(max_length=100, blank=True, default="")
+    description = models.CharField(max_length=100, blank=True, default="")
+    working_hours = models.CharField(max_length=100, blank=True, default="")
     profile_type = models.CharField(max_length=50, choices=type_choices, default='customer')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

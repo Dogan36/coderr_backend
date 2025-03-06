@@ -81,36 +81,7 @@ class OffersSerializer(serializers.ModelSerializer):
         offer.save()
         return offer
     
-    def update(self, instance, validated_data):
-        """
-        Updates an offer and its associated offer details.
-
-        - Extracts `offer_details` from `validated_data`.
-        - Updates the offer's `title` and `description`.
-        - Deletes existing `OfferDetails` and recreates them with new data.
-        - Aggregates and updates `min_price` and `min_delivery_time`.
-        """
-        details_data = validated_data.pop('offer_details', [])
-        instance.title = validated_data.get('title', instance.title)
-        instance.description = validated_data.get('description', instance.description)
-        instance.save()
-        
-         # Delete old OfferDetails and replace them with new ones
-        instance.offer_details.all().delete()
-        for detail_data in details_data:
-            OfferDetails.objects.create(offer=instance, **detail_data)
-            
-        # Aggregate values from related OfferDetails
-        aggregated = OfferDetails.objects.filter(offer=instance).aggregate(
-            min_price=Min("price"),
-            min_delivery_time=Min("delivery_time_in_days")
-        )
-        
-        # Update the Offer object with new values
-        instance.min_price = aggregated.get('min_price') or 0
-        instance.min_delivery_time = aggregated.get('min_delivery_time') or 0
-        instance.save()
-        return instance
+    
 
    
 class OrdersSerializer(serializers.ModelSerializer):
@@ -147,52 +118,55 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         """
         offer_detail_id = validated_data.pop('offer_detail_id')
         
-        # Retrieve the selected OfferDetails instance
-        try:
-            offer_detail = OfferDetails.objects.get(id=offer_detail_id)
-        except OfferDetails.DoesNotExist:
-            raise serializers.ValidationError("OfferDetail not found")
-        
-        # Ensure the request context is provided
-        request = self.context.get('request')
-        if request is None:
-            raise serializers.ValidationError("Request context not provided")
+        # 🔍 1. OfferDetails abrufen
+        offer_detail = OfferDetails.objects.filter(id=offer_detail_id).first()
+        if not offer_detail:
+            raise serializers.ValidationError({"error": "OfferDetail not found"})
 
-        # Retrieve the customer's profile based on the request user
-        try:
-            customer_profile = Profil.objects.get(user=request.user)
-        except Profil.DoesNotExist:
-            raise serializers.ValidationError("Customer profile not found")
-        print("🔍 Customer Profile:", customer_profile)
-        # Create the order with data from the selected OfferDetail
-        order = Orders.objects.create(
-            customer_user=customer_profile,
-            business_user=offer_detail.offer.user,
-            title=offer_detail.offer.title,
-            revisions=offer_detail.revisions,
-            delivery_time_in_days=offer_detail.delivery_time_in_days,
-            price=offer_detail.price,
-            features=offer_detail.features,
-            offer_type=offer_detail.offer_type,
-            status="in_progress"
-        )
+        # 🔍 2. Request-Objekt sicherstellen
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError({"error": "Invalid request context or unauthenticated user"})
+
+        # 🔍 3. Kundenprofil abrufen
+        customer_profile = Profil.objects.filter(user=request.user).first()
+        if not customer_profile:
+            raise serializers.ValidationError({"error": "Customer profile not found"})
+        
+        print(f"✅ Customer Profile gefunden: {customer_profile}")
+
+        # 📝 4. Order-Daten vorbereiten
+        order_data = {
+            "customer_user": customer_profile,
+            "business_user": offer_detail.offer.user,
+            "title": offer_detail.offer.title,
+            "revisions": offer_detail.revisions,
+            "delivery_time_in_days": offer_detail.delivery_time_in_days,
+            "price": offer_detail.price,
+            "features": offer_detail.features,
+            "offer_type": offer_detail.offer_type,
+            "status": "in_progress",
+        }
+
+        # ✅ 5. Order erstellen
+        order = Orders.objects.create(**order_data)
+        print(f"✅ Order erstellt: {order}")
+        
         return order
 
 
 
-
-class ProfilDetailSerializer(serializers.ModelSerializer):
+class ProfilSerializer(serializers.ModelSerializer):
     """
-    Serializer für GET-Anfragen.
-    - Zeigt User-Daten als einzelne Felder, nicht verschachtelt.
+    Serialisiert das `Profil`-Modell zusammen mit den Benutzerdaten.
     """
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  
     username = serializers.CharField(source="user.username", read_only=True)
-    first_name = serializers.CharField(source="user.first_name", read_only=True)
-    last_name = serializers.CharField(source="user.last_name", read_only=True)
-    email = serializers.CharField(source="user.email", read_only=True)
+    first_name = serializers.CharField(required=False)  
+    last_name = serializers.CharField(required=False)
+    email = serializers.CharField(required=False)
     file = serializers.SerializerMethodField()  
-    type = serializers.SerializerMethodField()  # Gibt `profile_type` als `type` zurück
+    type = serializers.CharField(source="profile_type")  
 
     class Meta:
         model = Profil
@@ -204,40 +178,18 @@ class ProfilDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ["created_at"]
 
     def get_file(self, obj):
-        """Gibt nur den Dateinamen zurück"""
-        return "media/uploads/" + os.path.basename(obj.file.name) if obj.file else None
-    
-    def get_type(self, obj):
-        """Gibt `profile_type` als `type` zurück"""
-        return obj.profile_type  # Intern wird `profile_type` verwendet
-
-class ProfilUpdateSerializer(serializers.ModelSerializer):
-    """
-    Serializer für PATCH-Anfragen.
-    - User-Daten werden als `user`-Objekt erwartet.
-    """
-    user = UserSerializer()  
-    file = serializers.SerializerMethodField()  
-
-    class Meta:
-        model = Profil
-        fields = [
-            "user", "file", "location", "tel", "description",
-            "working_hours", "profile_type"  # Geändert von `type` zu `profile_type`
-        ]
-
-    def get_file(self, obj):
-        """Gibt nur den Dateinamen zurück"""
-        return "media/uploads/" + os.path.basename(obj.file.name) if obj.file else None
+        return obj.file.name if obj.file else None
 
     def update(self, instance, validated_data):
-        """
-        Aktualisiert `Profil`- und `User`-Daten.
-        """
-        print("🔍 Validated Data:", validated_data)
+        print("🔍 Validated Data:", validated_data)  # Debugging
 
-        # User-Daten herausziehen und User-Objekt aktualisieren
-        user_data = validated_data.pop("user", None)
+        # User-Daten extrahieren
+        user_data = {}
+        for field in ["first_name", "last_name", "email"]:
+            if field in validated_data:
+                user_data[field] = validated_data.pop(field)
+
+        # Falls User-Daten vorhanden sind, User-Objekt aktualisieren
         if user_data:
             user = instance.user
             for attr, value in user_data.items():
@@ -248,12 +200,14 @@ class ProfilUpdateSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         """
-        Ändert die Response, sodass `user` nur als ID zurückgegeben wird.
+        Stellt sicher, dass `first_name`, `last_name` und `email` in der API-Response enthalten sind.
         """
         rep = super().to_representation(instance)
-        rep["user"] = instance.user.pk  
-        rep["type"] = instance.profile_type  # Geändert, um `profile_type` als `type` zurückzugeben
+        rep["first_name"] = instance.user.first_name
+        rep["last_name"] = instance.user.last_name
+        rep["email"] = instance.user.email
         return rep
+
         
 class ProfilTypeSingleSerializer(serializers.ModelSerializer):
     """

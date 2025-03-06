@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib import admin
 from django.contrib.auth.models import User
-from .models import Profil, Offers, OfferDetails, Orders  # Stelle sicher, dass alle importiert sind
+from .models import Profil, Offers, OfferDetails, Orders, Reviews  # Stelle sicher, dass alle importiert sind
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ("id", "username", "email", "first_name", "last_name", "is_staff")
@@ -18,3 +18,4 @@ admin.site.register(Profil, ProfilAdmin)  # Profil mit `ProfilAdmin` registriere
 admin.site.register(Offers)
 admin.site.register(OfferDetails)
 admin.site.register(Orders)
+admin.site.register(Reviews)
