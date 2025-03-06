@@ -1,5 +1,5 @@
-from email.mime import image
-import re
+
+
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -113,16 +113,18 @@ class OffersViewSet(viewsets.ModelViewSet):
         if image:
             instance.image = image
 
-        # 🔹 Standard-Felder aktualisieren
+        # 🔹 Standard-Felder aktualisieren (außer `offer_details`)
         for attr, value in validated_data.items():
-            setattr(instance, attr, value)
+            if attr != "offer_details":  # `offer_details` separat behandeln
+                setattr(instance, attr, value)
 
         # 🔹 Falls `offer_details` mitgeschickt wurden, alte löschen & neu erstellen
         details_data = self.request.data.get("offer_details", None)
         if details_data is not None:
+            print("🛠 Aktualisiere offer_details...")
             instance.offer_details.all().delete()
-            for detail_data in details_data:
-                OfferDetails.objects.create(offer=instance, **detail_data)
+            new_details = [OfferDetails(offer=instance, **detail_data) for detail_data in details_data]
+            OfferDetails.objects.bulk_create(new_details)
 
         # 🔹 `min_price` & `min_delivery_time` neu berechnen
         aggregated = OfferDetails.objects.filter(offer=instance).aggregate(
@@ -133,6 +135,7 @@ class OffersViewSet(viewsets.ModelViewSet):
         instance.min_delivery_time = aggregated.get('min_delivery_time') or 0
 
         instance.save()  # 🔥 Alle Änderungen speichern!
+        print("✅ Update erfolgreich gespeichert.")
 
     def get_queryset(self):
         """
@@ -320,23 +323,49 @@ class ProfileDetailView(RetrieveUpdateAPIView):
         except Profil.DoesNotExist:
             return Response({"error": "Profil nicht gefunden."}, status=status.HTTP_404_NOT_FOUND)
     
-    def patch(self, request, *args, **kwargs):
+    def perform_update(self, serializer):
         """
-        PATCH: Aktualisiert das Benutzerprofil.
+        Speichert das Bild korrekt in das Profil-Modell und gibt Debugging-Infos aus.
         """
-        instance = self.get_object()
-
-        # Überprüfen, ob der Benutzer berechtigt ist (wenn nur eigene Profile bearbeitet werden dürfen)
-        if instance.user != request.user and not request.user.is_superuser:
-            return Response({"error": "Keine Berechtigung zum Bearbeiten dieses Profils."}, status=status.HTTP_403_FORBIDDEN)
-
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-
-        if serializer.is_valid():
+        print("🔄 perform_update() wird aufgerufen...")  # Debugging
+        print(self.request.FILES)  # Debugging
+        # Überprüfe, ob eine Datei hochgeladen wurde
+        file = self.request.FILES.get("file", None)
+        print(f"📸 Hochgeladenes Bild: {file}")  # Debugging
+        
+        if file is not None:
+            instance = serializer.instance
+            print(f"✅ Speichere Bild für Benutzer {instance.user}")  # Debugging
+            instance.file = file  # Falls das Feld `image` heißt
+            instance.save()
+        else:
+            print("⚠️ Kein Bild hochgeladen, speichere normale Updates...")  # Debugging
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
+def patch(self, request, pk, *args, **kwargs):
+    """
+    PATCH: Aktualisiert das Benutzerprofil mit oder ohne Bild und gibt Debugging-Infos aus.
+    """
+    print("📩 PATCH-Request erhalten!")  # Debugging
+    print(f"🔑 User ID: {request.user.id} | Angeforderte Profil-ID: {pk}")  # Debugging
+    print(f"📂 Dateien im Request: {request.FILES}")  # Debugging
+    print(f"📦 Body-Daten im Request: {request.data}")  # Debugging
+
+    profil = get_object_or_404(Profil, user__id=pk)
+    print(f"🔍 Gefundenes Profil: {profil}")  # Debugging
+
+    serializer = self.get_serializer(profil, data=request.data, partial=True)
+
+    if serializer.is_valid():
+        print("✅ Serializer ist gültig, speichere Daten...")  # Debugging
+        serializer.save()
+        print(f"🎉 Profil für User {profil.user} erfolgreich aktualisiert!")  # Debugging
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    print("❌ Fehler beim Speichern:", serializer.errors)  # Debugging
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    
         
 class BusinessProfilesListView(generics.ListAPIView):
     """

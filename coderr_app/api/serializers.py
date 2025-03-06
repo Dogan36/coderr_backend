@@ -164,7 +164,7 @@ class ProfilSerializer(serializers.ModelSerializer):
     first_name = serializers.CharField(required=False)  
     last_name = serializers.CharField(required=False)
     email = serializers.CharField(required=False)
-    file = serializers.SerializerMethodField()  
+    
     type = serializers.CharField(source="profile_type")  
 
     class Meta:
@@ -176,8 +176,7 @@ class ProfilSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["created_at"]
 
-    def get_file(self, obj):
-        return obj.file.name if obj.file else None
+    
 
     def update(self, instance, validated_data):
         print("🔍 Validated Data:", validated_data)  # Debugging
