@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission, IsUniqueReviewer, IsOwnerCustomerOrAdmin
+from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission, IsOwnerOfProfile, IsUniqueReviewer, IsOwnerCustomerOrAdmin
 from rest_framework.generics import RetrieveUpdateAPIView
 from .pagination import LargeResultsSetPagination
 
@@ -57,10 +57,13 @@ class OffersViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     def get_object(self):
         """
-        Gibt das aktuelle Offer-Objekt zurück.
+        Holt das `Offer`-Objekt. Falls es nicht existiert, gibt es `404 Not Found` zurück.
+        Danach werden die Objekt-Permissions geprüft.
         """
-        obj = super().get_object()
+        obj = get_object_or_404(Offers, pk=self.kwargs.get("pk"))  # Zuerst prüfen, ob das Objekt existiert
         print(f"🔍 get_object() liefert: {obj}")  
+        
+        self.check_object_permissions(self.request, obj)  # Erst jetzt die Berechtigungen prüfen
         return obj
     def get_permissions(self):
         """
@@ -68,12 +71,17 @@ class OffersViewSet(viewsets.ModelViewSet):
         """
         print(f"🔑 Request Methode: {self.request.method}")  
 
-        if self.request.method == "POST":
-            return [IsBusinessForCreateOnly()]
-        if self.request.method in ["PATCH", "DELETE"]:
-            print("✅ PATCH-Berechtigung aktiviert!")  
-            return [IsOwnerForPatchOnly()]
-        return []
+        if self.action == "retrieve":  # Einzelnes Angebot abrufen
+            return [IsAuthenticated()]
+
+        if self.action == "create":  # `POST`
+            return [IsAuthenticated(), IsBusinessForCreateOnly()]
+        
+        if self.action in ["update", "partial_update", "destroy"]:  # `PATCH` und `DELETE`
+            return [IsAuthenticated()]  # Hier nur Authentifizierung prüfen, nicht Ownership!
+
+        return []  # `list` bleibt öffentlich
+    
     
 
     def perform_create(self, serializer):
@@ -117,9 +125,10 @@ class OffersViewSet(viewsets.ModelViewSet):
         for attr, value in validated_data.items():
             if attr != "offer_details":  # `offer_details` separat behandeln
                 setattr(instance, attr, value)
-
+        print(self.request.data)
         # 🔹 Falls `offer_details` mitgeschickt wurden, alte löschen & neu erstellen
-        details_data = self.request.data.get("offer_details", None)
+        details_data = self.request.data.get("details", None)
+        print(f"🔍 Neue offer_details: {details_data}")
         if details_data is not None:
             print("🛠 Aktualisiere offer_details...")
             instance.offer_details.all().delete()
@@ -305,29 +314,27 @@ class ProfileDetailView(RetrieveUpdateAPIView):
     """
     queryset = Profil.objects.all()
     serializer_class = ProfilSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwnerOfProfile]
+
     def get_object(self):
         """
         Holt das `Profil` anhand der User-ID (`pk` ist die `user_id`).
         """
-        return get_object_or_404(Profil, user__id=self.kwargs["pk"])
+        obj = get_object_or_404(Profil, user__id=self.kwargs["pk"])
+        
+        # 🔍 Debugging: Prüfe, ob `has_object_permission` überhaupt aufgerufen wird
+        self.check_object_permissions(self.request, obj)
 
-    def get(self, request, *args, **kwargs):
-        """
-        GET: Gibt das Benutzerprofil zurück.
-        """
-        try:
-            instance = self.get_object()
-            serializer = self.get_serializer(instance)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except Profil.DoesNotExist:
-            return Response({"error": "Profil nicht gefunden."}, status=status.HTTP_404_NOT_FOUND)
-    
+        return obj
+
     def perform_update(self, serializer):
         """
         Speichert das Bild korrekt in das Profil-Modell und gibt Debugging-Infos aus.
         """
         print("🔄 perform_update() wird aufgerufen...")  # Debugging
+        print(f"🔑 Request User: {self.request.user}")  
+        print(f"👤 Profil gehört zu: {self.get_object().user}")
+        
         print(self.request.FILES)  # Debugging
         # Überprüfe, ob eine Datei hochgeladen wurde
         file = self.request.FILES.get("file", None)
@@ -342,29 +349,6 @@ class ProfileDetailView(RetrieveUpdateAPIView):
             print("⚠️ Kein Bild hochgeladen, speichere normale Updates...")  # Debugging
             serializer.save()
 
-def patch(self, request, pk, *args, **kwargs):
-    """
-    PATCH: Aktualisiert das Benutzerprofil mit oder ohne Bild und gibt Debugging-Infos aus.
-    """
-    print("📩 PATCH-Request erhalten!")  # Debugging
-    print(f"🔑 User ID: {request.user.id} | Angeforderte Profil-ID: {pk}")  # Debugging
-    print(f"📂 Dateien im Request: {request.FILES}")  # Debugging
-    print(f"📦 Body-Daten im Request: {request.data}")  # Debugging
-
-    profil = get_object_or_404(Profil, user__id=pk)
-    print(f"🔍 Gefundenes Profil: {profil}")  # Debugging
-
-    serializer = self.get_serializer(profil, data=request.data, partial=True)
-
-    if serializer.is_valid():
-        print("✅ Serializer ist gültig, speichere Daten...")  # Debugging
-        serializer.save()
-        print(f"🎉 Profil für User {profil.user} erfolgreich aktualisiert!")  # Debugging
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    print("❌ Fehler beim Speichern:", serializer.errors)  # Debugging
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     
         
 class BusinessProfilesListView(generics.ListAPIView):
@@ -375,7 +359,7 @@ class BusinessProfilesListView(generics.ListAPIView):
     - Returns only profiles where `type="business"`.
     """
     serializer_class = ProfilTypeSerializer
-
+    permission_classes = [IsAuthenticated]
     def get_queryset(self):
         """
         Filters the queryset to return only business profiles.
@@ -391,6 +375,7 @@ class CustomerProfilesListView(generics.ListAPIView):
     - Returns only profiles where `type="customer"`.
     """
     serializer_class = ProfilTypeSerializer
+    permission_classes = [IsAuthenticated]
     def get_queryset(self):
         """
         Filters the queryset to return only customer profiles.

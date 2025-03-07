@@ -1,3 +1,4 @@
+from unittest.mock import Base
 from rest_framework.permissions import BasePermission
 from coderr_app.models import Profil, Orders, Offers, Reviews
 
@@ -171,3 +172,29 @@ class IsOwnerCustomerOrAdmin(BasePermission):
             return request.user.is_staff
 
         return False
+    
+from rest_framework.permissions import BasePermission
+
+class IsOwnerOfProfile(BasePermission):
+    """
+    Erlaubt das Bearbeiten eines Profils nur dem jeweiligen Benutzer selbst.
+    Admins haben keinen Sonderzugriff.
+    """
+    
+    def has_object_permission(self, request, view, obj):
+        print(f"🔍 Permission-Check für User: {request.user} (ID: {request.user.id})")
+        print(f"👤 Profil gehört zu: {obj.user} (ID: {obj.user.id})")
+        print(f"📝 Request-Methode: {request.method}")
+
+        # GET-Anfragen für alle erlauben
+        if request.method == "GET":
+            print("✅ GET erlaubt")
+            return True
+        
+        # PATCH darf nur der Besitzer des Profils durchführen
+        if obj.user == request.user:
+            print("✅ Zugriff erlaubt (Besitzer)")
+            return True
+        else:
+            print("❌ Zugriff verweigert (Nicht der Besitzer)")
+            return False
