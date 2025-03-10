@@ -1,4 +1,4 @@
-from unittest.mock import Base
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission
 from coderr_app.models import Profil, Orders, Offers, Reviews
 
@@ -131,7 +131,7 @@ class IsUniqueReviewer(BasePermission):
 
         # Falls keine Business-ID übergeben wurde, abbrechen (müsste eigentlich schon vom Serializer geprüft werden)
         if not business_user:
-            return False
+            raise ValidationError({"business_user": "Ein `business_user` muss angegeben werden."})
 
         # Prüfen, ob der aktuelle Benutzer das Business bereits bewertet hat
         already_reviewed = Reviews.objects.filter(business_user=business_user, reviewer=request.user).exists()

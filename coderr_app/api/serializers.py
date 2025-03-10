@@ -38,43 +38,43 @@ class OfferDetailsSerializer(serializers.ModelSerializer):
 class OffersSerializer(serializers.ModelSerializer):
     """
     Serializer for the Offers model.
-
-    - `details`: Nested serializer for offer details (`OfferDetailsSerializer`).
-    - `min_price`: Minimum price of the associated offer details (calculated).
-    - `min_delivery_time`: Minimum delivery time of the associated offer details (calculated).
-    - `user_details`: Nested serializer for user information (`UserSerializer`).
-    - `user`: Read-only field representing the offer creator.
     """
     details = OfferDetailsSerializer(many=True, source='offer_details')
     min_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
     min_delivery_time = serializers.IntegerField(read_only=True)
     user_details = UserSerializer(source="user", read_only=True)
     user = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = Offers
         fields = '__all__'
 
+    def validate(self, data):
+        """
+        Validates that exactly 3 offer details are provided.
+        """
+        details_data = data.get('offer_details', [])
+        if len(details_data) != 3:
+            raise serializers.ValidationError({"offer_details": "Es müssen genau 3 Offer Details gesendet werden."})
+        return data
+
     def create(self, validated_data):
         """
         Creates an offer along with its associated offer details.
-
-        - Extracts `offer_details` data and removes it from `validated_data`.
-        - Creates an `Offers` instance.
-        - Iterates through `offer_details` and creates `OfferDetails` instances linked to the offer.
-        - Aggregates the minimum price and delivery time from related `OfferDetails`.
-        - Saves the updated `min_price` and `min_delivery_time` to the offer.
         """
         details_data = validated_data.pop('offer_details', [])
         offer = Offers.objects.create(**validated_data)
+
+        # Create OfferDetails instances
         for detail_data in details_data:
             OfferDetails.objects.create(offer=offer, **detail_data)
-        
+
         # Aggregate values from related OfferDetails
         aggregated = OfferDetails.objects.filter(offer=offer).aggregate(
             min_price=Min("price"),
             min_delivery_time=Min("delivery_time_in_days")
         )
-        
+
         # Update the Offer object with calculated values
         offer.min_price = aggregated.get('min_price') or 0
         offer.min_delivery_time = aggregated.get('min_delivery_time') or 0
@@ -272,8 +272,16 @@ class ReviewsSerializer(serializers.ModelSerializer):
     - `reviewer`: Automatically assigned and read-only (set in the view).
     - Serializes all fields of the `Reviews` model.
     """
-    business_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+    business_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=True)
     reviewer = serializers.PrimaryKeyRelatedField(read_only=True)
+    rating = serializers.IntegerField(required=True, min_value=1, max_value=5)
+    description=serializers.CharField(required=True, allow_blank=False)
     class Meta:
         model = Reviews
         fields = '__all__'
+        
+        def validate_business_user(self, value):
+            """Stellt sicher, dass `business_user` nicht leer ist."""
+            if value is None:
+                raise serializers.ValidationError("Ein `business_user` muss angegeben werden.")
+            return value

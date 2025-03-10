@@ -1,5 +1,6 @@
 
 
+from webbrowser import get
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -21,6 +22,7 @@ from django.core.exceptions import ValidationError
 from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission, IsOwnerOfProfile, IsUniqueReviewer, IsOwnerCustomerOrAdmin
 from rest_framework.generics import RetrieveUpdateAPIView
 from .pagination import LargeResultsSetPagination
+from coderr_app.api import serializers
 
 class UserViewSet(viewsets.ModelViewSet):
     """
@@ -78,7 +80,7 @@ class OffersViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), IsBusinessForCreateOnly()]
         
         if self.action in ["update", "partial_update", "destroy"]:  # `PATCH` und `DELETE`
-            return [IsAuthenticated()]  # Hier nur Authentifizierung prüfen, nicht Ownership!
+            return [IsAuthenticated(), IsOwnerForPatchOnly()]  # Hier nur Authentifizierung prüfen, nicht Ownership!
 
         return []  # `list` bleibt öffentlich
     
@@ -211,6 +213,7 @@ class OfferDetailsViewSet(viewsets.ModelViewSet):
     - Each `OfferDetails` entry is linked to an `Offer`.
     - Allows retrieving, creating, updating, and deleting offer details.
     """
+    permission_classes = [IsAuthenticated]
     queryset = OfferDetails.objects.all()
     serializer_class = OfferDetailsSerializer
 
@@ -226,20 +229,32 @@ class OrdersViewSet(viewsets.ModelViewSet):
     - `DELETE /orders/{id}/` → Nur Admins dürfen Bestellungen löschen.
     """
     queryset = Orders.objects.all()
+    permission_classes = [IsAuthenticated]
+
     def get_permissions(self):
         """
-        Setzt verschiedene Berechtigungen je nach HTTP-Methode:
-        - `POST`: Nur Kunden (`IsCustomerForCreateOnly`).
-        - `PATCH`: Nur Anbieter (`business_user`) oder Admins (`IsBusinessForPatchOnly`).
-        - `DELETE`: Nur Admins (`IsAdminOrCustomPermission`).
+        Setzt verschiedene Berechtigungen je nach HTTP-Methode.
         """
         if self.request.method == "POST":
-            return [IsCustomerForCreateOnly()]
-        if self.request.method == "PATCH":
-            return [IsBusinessForPatchOnly()]
+            return [IsAuthenticated(), IsCustomerForCreateOnly()]
         if self.request.method == "DELETE":
-            return [IsAdminOrCustomPermission()]
-        return [IsAuthenticated()]
+            return [IsAuthenticated(), IsAdminOrCustomPermission()]
+        if self.request.method == "PATCH":
+            return [IsAuthenticated(), IsBusinessForPatchOnly()]
+        return [IsAuthenticated()]  # Für `PATCH` erfolgt die spezifische Berechtigungsprüfung in `get_object()`
+
+    def get_object(self):
+        """
+        Holt die Bestellung und prüft danach die Berechtigungen.
+        
+        - Falls die Bestellung nicht existiert → 404 Not Found.
+        - Falls der Benutzer keine Berechtigung hat → 403 Forbidden.
+        """
+        obj = get_object_or_404(Orders, pk=self.kwargs.get("pk"))  # Holt das Order-Objekt
+        print(f"🔍 get_object() liefert: {obj}")  
+
+        self.check_object_permissions(self.request, obj)  # Erst jetzt die Berechtigungen prüfen
+        return obj
 
     def get_serializer_class(self):
         """
@@ -259,6 +274,7 @@ class OrdersViewSet(viewsets.ModelViewSet):
             return Orders.objects.all()  # Admins sehen ALLES
 
         return Orders.objects.filter(customer_user=user) | Orders.objects.filter(business_user=user)
+
     def create(self, request, *args, **kwargs):
         """
         Erstellt eine Bestellung basierend auf einem Angebot.
@@ -272,16 +288,22 @@ class OrdersViewSet(viewsets.ModelViewSet):
         # ✅ Rückgabe des erstellten Objekts als JSON
         output_serializer = OrdersSerializer(order, context={'request': request})
         return Response(output_serializer.data, status=status.HTTP_201_CREATED)
-    
+
     def update(self, request, *args, **kwargs):
         """
         - Nur `status` darf per PATCH geändert werden.
         - Nur der `business_user` kann den Status ändern.
         - Admins dürfen ALLES ändern.
+        - Falls die Bestellung nicht gefunden wird, gibt es 404.
+        - Falls der Benutzer nicht autorisiert ist, gibt es 403.
         """
         print("🔄 PATCH Request für Bestellung erkannt!")
 
-        instance = self.get_object()
+        instance = self.get_object()  # Holt das Order-Objekt über `get_object()`, prüft auch Berechtigungen
+        print(f"🔍 Bestellung gefunden: {instance}")
+
+        print(f"👤 Anfragender User: {request.user}")
+        print(f"🛠 Business-User dieser Bestellung: {instance.business_user}")
 
         new_status = request.data.get("status")
         valid_status_choices = [choice[0] for choice in Orders.status_choices]
@@ -302,8 +324,7 @@ class OrdersViewSet(viewsets.ModelViewSet):
         """
         - NUR Admins dürfen Bestellungen löschen.
         """
-        instance = self.get_object()
-
+        instance = self.get_object()  # Holt die Bestellung, prüft ob sie existiert und ob der User Admin ist.
         instance.delete()
         return Response({}, status=status.HTTP_200_OK)
     
@@ -383,15 +404,9 @@ class CustomerProfilesListView(generics.ListAPIView):
         return Profil.objects.filter(profile_type="customer")
 
 
-  
 class ReviewsViewSet(viewsets.ModelViewSet):
     """
     ViewSet für die Verwaltung von Bewertungen.
-    
-    - Alle Benutzer können Bewertungen sehen.
-    - Nur `customer`-Nutzer können neue Bewertungen erstellen.
-    - Eine Firma kann nur einmal von demselben Benutzer bewertet werden.
-    - Nur der Ersteller oder ein Admin darf eine Bewertung bearbeiten oder löschen.
     """
 
     queryset = Reviews.objects.all()
@@ -399,15 +414,16 @@ class ReviewsViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["updated_at", "rating"]
     permission_classes = [IsAuthenticated, IsCustomerForCreateOnly, IsUniqueReviewer, IsOwnerCustomerOrAdmin]
+
     def get_queryset(self):
         """
-        Gibt Bewertungen basierend auf Filter-Parametern zurück:
-        - `business_user_id`: Bewertungen eines bestimmten Geschäftsbenutzers.
-        - `reviewer_id`: Bewertungen eines bestimmten Erstellers.
+        Gibt Bewertungen basierend auf Filter-Parametern zurück.
         """
         queryset = Reviews.objects.all()
         business_user_id = self.request.query_params.get("business_user_id")
         reviewer_id = self.request.query_params.get("reviewer_id")
+
+        print(f"🔍 GET-Filter: business_user_id={business_user_id}, reviewer_id={reviewer_id}")
 
         if business_user_id:
             queryset = queryset.filter(business_user_id=business_user_id)
@@ -416,56 +432,101 @@ class ReviewsViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+    def get_object(self):
+        """
+        Holt das Review-Objekt und prüft Berechtigungen.
+        """
+        print("🔄 get_object() wird aufgerufen...")
+
+        obj = get_object_or_404(Reviews, pk=self.kwargs.get("pk"))  
+        print(f"🔍 Gefundenes Review-Objekt: {obj}")
+
+        print(f"🔑 Berechtigungen werden geprüft für User: {self.request.user}")
+        self.check_object_permissions(self.request, obj)  # 🔹 Berechtigungen erst jetzt prüfen
+
+        return obj
+    def get_permissions(self):
+        """
+        Debugging: Loggt alle Permissions, bevor sie angewendet werden.
+        """
+        permissions = super().get_permissions()
+        print(f"🔑 Aktive Berechtigungen für {self.request.method}: {permissions}")
+        return permissions
     def perform_create(self, serializer):
         """
-        Erstellt eine neue Bewertung:
-        - Prüft, ob das Business bereits vom Benutzer bewertet wurde.
-        - Prüft, ob der Benutzer überhaupt ein `customer`-Profil hat.
+        Erstellt eine neue Bewertung und prüft Validierung & Berechtigungen.
         """
-        request_user = self.request.user
-        
-        serializer.save(reviewer=request_user)
+        print("🛠 perform_create() wird aufgerufen...")
+
+        print(f"📥 Request-Daten: {self.request.data}")  
+
+        business_user = self.request.data.get("business_user")
+
+        if not business_user:
+            print("❌ business_user fehlt in der Anfrage! 400 Bad Request wird zurückgegeben.")
+            raise serializers.ValidationError({"business_user": "Ein `business_user` muss angegeben werden."})
+
+        print(f"✅ business_user vorhanden: {business_user}")
+
+        # Bewertung speichern
+        instance = serializer.save(reviewer=self.request.user)
+        print(f"✅ Bewertung erfolgreich erstellt: {instance}")
+
+        # 🔹 Erst nach erfolgreicher Validierung Berechtigungen prüfen
+        print(f"🔑 Berechtigungen werden geprüft für {self.request.user}")
+        self.check_object_permissions(self.request, instance)
 
     def perform_update(self, serializer):
         """
-        Bearbeitet eine Bewertung:
-        - Nur der Ersteller oder ein Admin darf eine Bewertung ändern.
-        - Nur `rating` und `description` dürfen bearbeitet werden.
+        Bearbeitet eine Bewertung.
         """
+        print("🔄 perform_update() wird aufgerufen...")
+
         instance = self.get_object()
         request_user = self.request.user
 
-        # Prüfe, ob der Benutzer der Ersteller oder ein Admin ist
+        print(f"👤 Request von User: {request_user}, Bewertung gehört zu: {instance.reviewer}")
+
         if instance.reviewer != request_user and not request_user.is_staff:
+            print("❌ Keine Berechtigung! 403 Forbidden wird zurückgegeben.")
             return Response(
                 {"error": "Nur der Ersteller oder ein Admin darf die Bewertung bearbeiten."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Nur bestimmte Felder dürfen aktualisiert werden
         allowed_fields = {"rating", "description"}
         invalid_fields = set(serializer.validated_data.keys()) - allowed_fields
 
         if invalid_fields:
+            print(f"❌ Ungültige Felder für Update: {invalid_fields}")
             return Response(
                 {"error": f"Diese Felder können nicht aktualisiert werden: {', '.join(invalid_fields)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        print("✅ Update erfolgreich.")
         serializer.save()
 
     def perform_destroy(self, instance):
         """
-        Löscht eine Bewertung:
-        - Nur der Ersteller oder ein Admin darf eine Bewertung löschen.
+        Löscht eine Bewertung.
         """
+        print("🗑️ perform_destroy() wird aufgerufen...")
+
         request_user = self.request.user
+
+        print(f"👤 Request von User: {request_user}, Bewertung gehört zu: {instance.reviewer}")
+
         if instance.reviewer != request_user and not request_user.is_staff:
+            print("❌ Keine Berechtigung! 403 Forbidden wird zurückgegeben.")
             return Response(
                 {"error": "Nur der Ersteller oder ein Admin darf die Bewertung löschen."},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        print("✅ Bewertung erfolgreich gelöscht.")
         instance.delete()
+
         
 class LoginAPIView(APIView):
     """
@@ -625,6 +686,7 @@ class BusinessCompletedOrderCountViewSet(viewsets.ViewSet):
     - Returns the number of orders with `status="completed"` for the given business user.
     - Returns an error response if the business user is not found.
     """
+    permission_classes=[IsAuthenticated]
     def list(self, request, pk=None):
         """
         Returns the count of completed orders for the specified business user.
