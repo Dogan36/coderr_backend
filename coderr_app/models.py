@@ -33,7 +33,7 @@ class OfferDetails(models.Model):
         ('standard', 'Standard'),
         ('premium', 'Premium'),
     ]
-    offer_type = models.CharField(max_length=50, choices=offer_type_choices, default='basic')
+    offer_type = models.CharField(max_length=50, choices=offer_type_choices, default='basic', blank=False, null=False)
 
     def __str__(self):
         return f"{self.offer.title} - {self.offer_type}"

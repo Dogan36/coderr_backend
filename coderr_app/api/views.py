@@ -1,6 +1,6 @@
 
 
-from webbrowser import get
+from rest_framework.exceptions import ValidationError, NotFound
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -18,7 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
+
 from coderr_app.api.permissions import IsBusinessForCreateOnly, IsBusinessForPatchOnly, IsCustomerForCreateOnly, IsOwnerForPatchOnly, IsAdminOrCustomPermission, IsOwnerOfProfile, IsUniqueReviewer, IsOwnerCustomerOrAdmin
 from rest_framework.generics import RetrieveUpdateAPIView
 from .pagination import LargeResultsSetPagination
@@ -58,18 +58,25 @@ class OffersViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_object(self):
+        print("get_object")
         """
         Retrieves an `Offer` object. Returns `404 Not Found` if it does not exist.
         After retrieval, object permissions are checked.
         """
         obj = get_object_or_404(Offers, pk=self.kwargs.get("pk"))
-        self.check_object_permissions(self.request, obj)
+        print(obj)
         return obj
 
     def get_permissions(self):
+        print("get_permissions")
         """
         Assigns different permissions based on the HTTP method.
         """
+        if self.action in ["retrieve", "update", "partial_update", "destroy"]:
+            try:
+                self.get_object()  # Holt das Objekt, wenn es existiert
+            except NotFound:
+                pass  # Falls es nicht existiert, einfach nichts tun
         if self.action == "retrieve":
             return [IsAuthenticated()]
         if self.action == "create":
@@ -115,23 +122,30 @@ class OffersViewSet(viewsets.ModelViewSet):
             if attr != "offer_details":
                 setattr(instance, attr, value)
 
-        # If `offer_details` are provided, update them selectively
+        # If `offer_details` are provided, process them individually
         details_data = self.request.data.get("details", None)
         if details_data is not None:
+            processed_offer_types = set()  # Um doppelte OfferDetails zu verhindern
+
             for detail_data in details_data:
                 offer_type = detail_data.get("offer_type")
                 if not offer_type:
-                    continue
+                    raise ValidationError({"offer_type": "This field is required for all offer details."})
+
+                processed_offer_types.add(offer_type)
 
                 existing_detail = instance.offer_details.filter(offer_type=offer_type).first()
                 if existing_detail:
-                    # Update existing `offer_detail`
+                    # Update existing `OfferDetail`
                     for key, value in detail_data.items():
                         setattr(existing_detail, key, value)
                     existing_detail.save()
                 else:
-                    # Create new `offer_detail`
+                    # Create new `OfferDetail`
                     OfferDetails.objects.create(offer=instance, **detail_data)
+
+            # Lösche alte OfferDetails, die nicht mehr im Request sind
+            instance.offer_details.exclude(offer_type__in=processed_offer_types).delete()
 
         # Recalculate `min_price` & `min_delivery_time`
         aggregated = OfferDetails.objects.filter(offer=instance).aggregate(
@@ -157,7 +171,8 @@ class OffersViewSet(viewsets.ModelViewSet):
         # Apply sorting
         if ordering in ["created_at", "-created_at", "updated_at", "-updated_at"]:
             queryset = queryset.order_by(ordering)
-
+        print(max_delivery_time)
+        print(max_delivery_time.isdigit())
         # Apply filters
         if creator_id:
             queryset = queryset.filter(user_id=creator_id)
@@ -166,7 +181,9 @@ class OffersViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(min_price__gte=float(min_price))
             except ValueError:
                 pass
-        if max_delivery_time and max_delivery_time.isdigit():
+        if max_delivery_time:
+            if not max_delivery_time.isdigit():
+                raise ValidationError({"max_delivery_time": "Invalid max_delivery_time. Must be an integer."})
             queryset = queryset.filter(min_delivery_time__lte=int(max_delivery_time))
 
         return queryset
@@ -230,6 +247,11 @@ class OrdersViewSet(viewsets.ModelViewSet):
         """
         Assigns different permissions based on the HTTP method.
         """
+        if self.action in ["retrieve", "update", "partial_update", "destroy"]:
+            try:
+                self.get_object()  # Holt das Objekt, wenn es existiert
+            except NotFound:
+                pass  # Falls es nicht existiert, einfach nichts tun
         if self.request.method == "POST":
             return [IsAuthenticated(), IsCustomerForCreateOnly()]
         if self.request.method == "DELETE":
@@ -246,7 +268,6 @@ class OrdersViewSet(viewsets.ModelViewSet):
         - If the user lacks permissions → Returns 403 Forbidden.
         """
         obj = get_object_or_404(Orders, pk=self.kwargs.get("pk"))
-        self.check_object_permissions(self.request, obj)
         return obj
 
     def get_serializer_class(self):
@@ -427,7 +448,7 @@ class ReviewsViewSet(viewsets.ModelViewSet):
         business_user = self.request.data.get("business_user")
 
         if not business_user:
-            raise serializers.ValidationError({"business_user": "A `business_user` must be specified."})
+            raise ValidationError({"business_user": "A `business_user` must be specified."})
 
         # Validate user permissions before saving
         temp_instance = serializer.Meta.model(reviewer=self.request.user, business_user_id=business_user)

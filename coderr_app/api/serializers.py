@@ -27,13 +27,29 @@ class OfferDetailsSerializer(serializers.ModelSerializer):
     - The `offer` field is read-only, ensuring it is not modified directly via the serializer.
     """
     features = serializers.ListField(child=serializers.CharField())
+    offer_type = serializers.ChoiceField(
+        choices=OfferDetails.offer_type_choices, 
+        required=True  # Jetzt für POST und PATCH erforderlich!
+    )
     class Meta:
         model = OfferDetails
         fields = ['id', 'title', 'revisions', 'delivery_time_in_days', 'price', 'features', 'offer_type']
         extra_kwargs = {
             'offer': {'read_only': True}
         }
- 
+    def validate(self, data):
+        """
+        Ensure that all fields are provided when updating or creating an OfferDetail.
+        """
+        required_fields = {"title", "revisions", "delivery_time_in_days", "price", "features", "offer_type"}
+        missing_fields = required_fields - data.keys()
+
+        if missing_fields:
+            raise serializers.ValidationError(
+                {field: "This field is required in all offer details." for field in missing_fields}
+            )
+
+        return data  
               
 class OffersSerializer(serializers.ModelSerializer):
     """
