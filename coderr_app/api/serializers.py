@@ -51,12 +51,18 @@ class OffersSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """
-        Validates that exactly 3 offer details are provided.
+        Validates that exactly 3 offer details are provided, but only for POST requests.
         """
+        request = self.context.get("request")  # Zugriff auf die HTTP-Methode
+
         details_data = data.get('offer_details', [])
-        if len(details_data) != 3:
+
+        # **Check for POST only if length of details_data == 3**
+        if request and request.method == "POST" and len(details_data) != 3:
             raise serializers.ValidationError({"offer_details": "Es müssen genau 3 Offer Details gesendet werden."})
+
         return data
+
 
     def create(self, validated_data):
         """
@@ -82,8 +88,6 @@ class OffersSerializer(serializers.ModelSerializer):
         return offer
     
     
-
-   
 class OrdersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Orders
@@ -118,23 +122,21 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         """
         offer_detail_id = validated_data.pop('offer_detail_id')
         
-        # 🔍 1. OfferDetails abrufen
+        # 🔍 1. Get Offer Details
         try:
             offer_detail = OfferDetails.objects.get(id=offer_detail_id)
         except OfferDetails.DoesNotExist:
             raise serializers.ValidationError("OfferDetail not found")
 
-        # 🔍 2. Request-Objekt sicherstellen
+        # 🔍 2. Check request object and user
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             raise serializers.ValidationError({"error": "Invalid request context or unauthenticated user"})
 
-        # 🔍 3. Kundenprofil abrufen
+        # 🔍 3. Get User
         request_user = self.context['request'].user
         
-        print(f"✅ Customer Profile gefunden: {request_user}")
-
-        # 📝 4. Order-Daten vorbereiten
+        # 📝 4. Prepare order data
         order_data = {
             "customer_user": request_user,
             "business_user": offer_detail.offer.user,
@@ -147,17 +149,15 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             "status": "in_progress",
         }
 
-        # ✅ 5. Order erstellen
+        # ✅ 5. Create Order
         order = Orders.objects.create(**order_data)
-        print(f"✅ Order erstellt: {order}")
-        
         return order
 
 
 
 class ProfilSerializer(serializers.ModelSerializer):
     """
-    Serialisiert das `Profil`-Modell zusammen mit den Benutzerdaten.
+    Serializer for profil with user data.
     """
     user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  
     username = serializers.CharField(source="user.username", read_only=True)
@@ -176,29 +176,24 @@ class ProfilSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["created_at"]
 
-    
-
     def update(self, instance, validated_data):
-        print("🔍 Validated Data:", validated_data)  # Debugging
-
-        # User-Daten extrahieren
+        # Extract user data from validated data
         user_data = {}
         for field in ["first_name", "last_name", "email"]:
             if field in validated_data:
                 user_data[field] = validated_data.pop(field)
 
-        # Falls User-Daten vorhanden sind, User-Objekt aktualisieren
+        # Updata the user instance
         if user_data:
             user = instance.user
             for attr, value in user_data.items():
                 setattr(user, attr, value)
             user.save()
-
         return super().update(instance, validated_data)
 
     def to_representation(self, instance):
         """
-        Stellt sicher, dass `first_name`, `last_name` und `email` in der API-Response enthalten sind.
+        Makes sure `first_name`, `last_name` und `email` are available in the API response.
         """
         rep = super().to_representation(instance)
         rep["first_name"] = instance.user.first_name
@@ -229,7 +224,7 @@ class ProfilTypeSingleSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         """
-        Ändert die API-Response, sodass `profile_type` als `type` zurückgegeben wird.
+        Changes API-Response, so `profile_type` will be returend as `type`.	
         """
         rep = super().to_representation(instance)
         rep["type"] = instance.profile_type  # API gibt weiterhin `type` zurück
@@ -257,7 +252,7 @@ class ProfilTypeSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         """
-        Ändert die API-Response, sodass `profile_type` als `type` zurückgegeben wird.
+        Changes API-Response, so `profile_type` will be returend as `type`.	
         """
         rep = super().to_representation(instance)
         rep["type"] = instance.profile_type  # API gibt weiterhin `type` zurück
@@ -281,7 +276,7 @@ class ReviewsSerializer(serializers.ModelSerializer):
         fields = '__all__'
         
         def validate_business_user(self, value):
-            """Stellt sicher, dass `business_user` nicht leer ist."""
+            """Validates `business_user`"""
             if value is None:
                 raise serializers.ValidationError("Ein `business_user` muss angegeben werden.")
             return value

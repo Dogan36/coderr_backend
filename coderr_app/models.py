@@ -1,8 +1,10 @@
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 from decimal import Decimal
+
 def default_features():
     return []
+
 class Offers(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
@@ -15,6 +17,7 @@ class Offers(models.Model):
 
     def __str__(self):
         return self.title
+
 
 class OfferDetails(models.Model):
     offer = models.ForeignKey(Offers, on_delete=models.CASCADE, related_name='offer_details')
@@ -34,6 +37,7 @@ class OfferDetails(models.Model):
 
     def __str__(self):
         return f"{self.offer.title} - {self.offer_type}"
+    
     
 class Orders(models.Model):
     status_choices = [

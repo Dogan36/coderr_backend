@@ -45,6 +45,7 @@ class IsBusinessForPatchOnly(IsAdminOrCustomPermission):
             return order.business_user == request.user
         except Orders.DoesNotExist:
             return False  # Falls Bestellung nicht existiert, verweigern
+        
     def has_object_permission(self, request, view, obj):
         if request.user.is_staff:  # Admins dürfen immer
             return True
@@ -95,25 +96,18 @@ class IsOwnerForPatchOnly(IsAdminOrCustomPermission):
         offer_id = view.kwargs.get("pk")  # Angebots-ID aus der URL abrufen
         try:
             offer = Offers.objects.get(pk=offer_id)
-            print(f"🔍 Angebot gefunden: {offer.id} gehört {offer.user}")  
-            print(f"🔍 Request User: {request.user} (Admin: {request.user.is_staff})")
-
             if request.user == offer.user:
-                print("✅ Zugriff erlaubt (User ist Besitzer)")
                 return True
             else:
-                print("❌ Zugriff verweigert (Nicht der Besitzer)")
                 return False
 
         except Offers.DoesNotExist:
-            print("❌ Angebot nicht gefunden!")
             return False  # Falls das Angebot nicht existiert, kein Zugriff
 
     def has_object_permission(self, request, view, obj):
         """
         Prüft den Zugriff auf ein einzelnes Angebot.
         """
-        print(f"🔎 has_object_permission() aufgerufen für: {obj}")
         return request.user == obj.user or request.user.is_staff 
 
 class IsUniqueReviewer(BasePermission):
@@ -122,24 +116,22 @@ class IsUniqueReviewer(BasePermission):
     """
     
     def has_permission(self, request, view):
-        # Falls es keine `POST`-Anfrage ist, Permission erlauben (GET, PATCH, DELETE sind erlaubt)
         if request.method != "POST":
             return True
-
-        # Business-ID aus der Anfrage holen
+        
         business_user = request.data.get("business_user")
 
-        # Falls keine Business-ID übergeben wurde, abbrechen (müsste eigentlich schon vom Serializer geprüft werden)
         if not business_user:
             raise ValidationError({"business_user": "Ein `business_user` muss angegeben werden."})
 
-        # Prüfen, ob der aktuelle Benutzer das Business bereits bewertet hat
         already_reviewed = Reviews.objects.filter(business_user=business_user, reviewer=request.user).exists()
-        
-        # Falls eine Bewertung existiert, verweigern wir die Erlaubnis
+
+
         if already_reviewed:
+
             return False
-        
+
+
         return True
     def has_object_permission(self, request, view, obj):
         # `GET` für alle erlauben
@@ -154,24 +146,15 @@ class IsOwnerCustomerOrAdmin(BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        # `GET` für alle Benutzer erlauben
         if request.method == "GET":
             return True
 
         # Ersteller der Bewertung und Admins dürfen bearbeiten/löschen
-        if request.method in ["PATCH", "DELETE"]:
-            # Prüfen, ob der Nutzer ein `customer`-Profil hat
-            try:
-                profil = Profil.objects.get(user=request.user)
-                if profil.profile_type == "customer" and obj.reviewer == request.user:
-                    return True  # ✅ Erlaubt für Kunden, die ihre eigene Bewertung bearbeiten
-            except Profil.DoesNotExist:
-                return False
-
-            # Admins dürfen immer bearbeiten/löschen
-            return request.user.is_staff
-
+        if request.user == obj.reviewer or request.user.is_staff:
+            return True
         return False
+
+        
     
 from rest_framework.permissions import BasePermission
 
@@ -182,19 +165,12 @@ class IsOwnerOfProfile(BasePermission):
     """
     
     def has_object_permission(self, request, view, obj):
-        print(f"🔍 Permission-Check für User: {request.user} (ID: {request.user.id})")
-        print(f"👤 Profil gehört zu: {obj.user} (ID: {obj.user.id})")
-        print(f"📝 Request-Methode: {request.method}")
-
         # GET-Anfragen für alle erlauben
         if request.method == "GET":
-            print("✅ GET erlaubt")
             return True
         
         # PATCH darf nur der Besitzer des Profils durchführen
         if obj.user == request.user:
-            print("✅ Zugriff erlaubt (Besitzer)")
             return True
         else:
-            print("❌ Zugriff verweigert (Nicht der Besitzer)")
             return False
