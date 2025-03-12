@@ -58,17 +58,14 @@ class OffersViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_object(self):
-        print("get_object")
         """
         Retrieves an `Offer` object. Returns `404 Not Found` if it does not exist.
         After retrieval, object permissions are checked.
         """
         obj = get_object_or_404(Offers, pk=self.kwargs.get("pk"))
-        print(obj)
         return obj
 
     def get_permissions(self):
-        print("get_permissions")
         """
         Assigns different permissions based on the HTTP method.
         """
