@@ -171,8 +171,6 @@ class OffersViewSet(viewsets.ModelViewSet):
         # Apply sorting
         if ordering in ["created_at", "-created_at", "updated_at", "-updated_at"]:
             queryset = queryset.order_by(ordering)
-        print(max_delivery_time)
-        print(max_delivery_time.isdigit())
         # Apply filters
         if creator_id:
             queryset = queryset.filter(user_id=creator_id)
@@ -410,7 +408,7 @@ class ReviewsViewSet(viewsets.ModelViewSet):
     serializer_class = ReviewsSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["updated_at", "rating"]
-    permission_classes = [IsAuthenticated, IsCustomerForCreateOnly, IsUniqueReviewer, IsOwnerCustomerOrAdmin]
+    permission_classes = [IsAuthenticated, IsCustomerForCreateOnly, IsOwnerCustomerOrAdmin]
 
     def get_queryset(self):
         """
@@ -450,10 +448,10 @@ class ReviewsViewSet(viewsets.ModelViewSet):
         if not business_user:
             raise ValidationError({"business_user": "A `business_user` must be specified."})
 
-        # Validate user permissions before saving
-        temp_instance = serializer.Meta.model(reviewer=self.request.user, business_user_id=business_user)
-        self.check_object_permissions(self.request, temp_instance)
-
+        # Validate if the user has already reviewed the business
+        already_reviewed = Reviews.objects.filter(business_user=business_user, reviewer=self.request.user).exists()
+        if already_reviewed:
+            raise ValidationError({"error": "You have already reviewed this business."})
         # Save the review
         serializer.save(reviewer=self.request.user)
 

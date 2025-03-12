@@ -88,7 +88,7 @@ class Reviews(models.Model):
     business_user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     reviewer = models.ForeignKey('auth.User', on_delete=models.CASCADE, related_name='reviewer')
     rating = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
-    description = models.TextField()
+    description = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

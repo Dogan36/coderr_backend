@@ -286,7 +286,7 @@ class ReviewsSerializer(serializers.ModelSerializer):
     business_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=True)
     reviewer = serializers.PrimaryKeyRelatedField(read_only=True)
     rating = serializers.IntegerField(required=True, min_value=1, max_value=5)
-    description=serializers.CharField(required=True, allow_blank=False)
+    description=serializers.CharField(required=False)
     class Meta:
         model = Reviews
         fields = '__all__'
