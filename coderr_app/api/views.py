@@ -69,11 +69,7 @@ class OffersViewSet(viewsets.ModelViewSet):
         """
         Assigns different permissions based on the HTTP method.
         """
-        if self.action in ["retrieve", "update", "partial_update", "destroy"]:
-            try:
-                self.get_object()  # Holt das Objekt, wenn es existiert
-            except NotFound:
-                pass  # Falls es nicht existiert, einfach nichts tun
+       
         if self.action == "retrieve":
             return [IsAuthenticated()]
         if self.action == "create":
