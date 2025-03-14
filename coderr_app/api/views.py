@@ -1,6 +1,7 @@
 
 
-from rest_framework.exceptions import ValidationError, NotFound
+from webbrowser import get
+from rest_framework.exceptions import ValidationError, NotFound, PermissionDenied
 from django.db.models import Min, Max, DecimalField, IntegerField
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status, filters, mixins
@@ -70,11 +71,12 @@ class OffersViewSet(viewsets.ModelViewSet):
         Assigns different permissions based on the HTTP method.
         """
        
-        if self.action == "retrieve":
+        if self.action in ["retrieve", "update", "partial_update"]:
             return [IsAuthenticated()]
         if self.action == "create":
             return [IsAuthenticated(), IsBusinessForCreateOnly()]
-        if self.action in ["update", "partial_update", "destroy"]:
+        if self.action == "destroy":
+            self.get_object()
             return [IsAuthenticated(), IsOwnerForPatchOnly()]
         return []
 
@@ -104,6 +106,9 @@ class OffersViewSet(viewsets.ModelViewSet):
         """
         instance = serializer.instance
         validated_data = serializer.validated_data
+
+        if not IsOwnerForPatchOnly().has_object_permission(self.request, self, instance):
+            raise PermissionDenied("You do not have permission to modify this offer.")
 
         # Handle file uploads (`image`) separately
         image = self.request.FILES.get('image', None)
