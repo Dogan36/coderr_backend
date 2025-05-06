@@ -1,9 +1,12 @@
+
 # Coderr - Backend Project
 
 This is a practice project as part of the Backend Developer training at **Developer Akademie**.  
 The project is a backend system developed using Django Rest Framework (DRF) and serves as an API for handling offers, orders, reviews, and user management.
 
 Frontend: Coderr_frontend_v1.1.0
+
+---
 
 ## 🚀 Features
 - **User Authentication**: Registration, login, and role-based access.
@@ -13,6 +16,7 @@ Frontend: Coderr_frontend_v1.1.0
 - **Review System**: Customers can leave reviews for business users.
 - **Filtering & Sorting**: API endpoints support filtering, ordering, and pagination.
 - **File Upload**: Profile pictures and offer images.
+- **CORS Configuration**: Secure connection between frontend and backend using environment variables.
 
 ---
 
@@ -21,7 +25,7 @@ Frontend: Coderr_frontend_v1.1.0
 - **Django Rest Framework (DRF)** - API development
 - **SQLite3** - Database
 - **Docker** - Containerization (optional)
-- **Token Authentification** - Secure user authentication
+- **Token Authentication** - Secure user authentication
 - **CORS Middleware** - Allow frontend to interact with the backend
 
 ---
@@ -46,17 +50,30 @@ env\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### 4️⃣ **Set Up the Database**
+### 4️⃣ **Configure Environment Variables**
+- Copy the provided `.env.example` file:
+    ```bash
+    cp .env.example .env
+    ```
+- Open `.env` and fill in the required values:
+    - `DJANGO_SECRET_KEY`
+    - `DJANGO_DEBUG`
+    - `ALLOWED_HOSTS`
+    - `CORS_ALLOWED_ORIGINS`
+
+---
+
+### 5️⃣ **Set Up the Database**
 ```bash
 python manage.py migrate
 ```
 
-### 5️⃣ **Create a Superuser (Admin)**
+### 6️⃣ **Create a Superuser (Admin)**
 ```bash
 python manage.py createsuperuser
 ```
 
-### 6️⃣ **Run the Development Server**
+### 7️⃣ **Run the Development Server**
 ```bash
 python manage.py runserver
 ```
@@ -133,8 +150,6 @@ This project is for educational purposes and is licensed under **MIT License**.
 ---
 
 ## 📩 Contact
-📧 **Your Name** - [mail@dogan-celik.com](mailto:mail@dogan-celik.com)  
+📧 **Dogan Celik** - [mail@dogan-celik.com](mailto:mail@dogan-celik.com)  
 🔗 **GitHub** - [github.com/Dogan36](https://github.com/Dogan36)  
-🔗 **LinkedIn** - [linkedin.com](https://linkedin.com/in/doğan-çelik-29a412235)
-```
-
+🔗 **LinkedIn** - [linkedin.com/in/doğan-çelik-29a412235](https://linkedin.com/in/doğan-çelik-29a412235)
