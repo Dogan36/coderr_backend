@@ -137,7 +137,7 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
@@ -149,17 +149,3 @@ DEFAULT_FILTER_BACKENDS = [
     'django_filters.rest_framework.DjangoFilterBackend'
     ]
 
-print("AKTUELLE ALLOWED_HOSTS:", ALLOWED_HOSTS)
-print("AKTUELLE CORS_ALLOWED_ORIGINS:", CORS_ALLOWED_ORIGINS)
-print("AKTUELLE DEBUG:", DEBUG)
-print("AKTUELLE SECRET_KEY:", SECRET_KEY)
-print("AKTUELLE MEDIA_URL:", MEDIA_URL)
-print("AKTUELLE MEDIA_ROOT:", MEDIA_ROOT)
-print("AKTUELLE STATIC_URL:", STATIC_URL)
-print("AKTUELLE STATIC_ROOT:", STATIC_ROOT)
-print("AKTUELLE DATABASES:", DATABASES)
-print("AKTUELLE INSTALLED_APPS:", INSTALLED_APPS)
-print("AKTUELLE MIDDLEWARE:", MIDDLEWARE)
-print("AKTUELLE TEMPLATES:", TEMPLATES)
-print("AKTUELLE REST_FRAMEWORK:", REST_FRAMEWORK)
-print("AKTUELLE AUTH_PASSWORD_VALIDATORS:", AUTH_PASSWORD_VALIDATORS)

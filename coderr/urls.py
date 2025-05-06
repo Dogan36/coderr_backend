@@ -6,7 +6,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 def home_view(request):
-    return JsonResponse({"message": "Welcome to Join Backend API"})
+    return JsonResponse({"message": "Welcome to Coderr Backend API"})
 
 urlpatterns = [
     path('', home_view),  # Füge eine Root-Route hinzu
